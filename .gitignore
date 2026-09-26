@@ -1,0 +1,50 @@
+# ── Environment ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.local.example
+!.env.production.example
+
+# ── Dependencies / build output ─────────────────────────────
+node_modules/
+dist/
+build/
+.next/
+out/
+coverage/
+.nyc_output/
+
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ── Logs / local databases / secrets ────────────────────────
+logs/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+secrets/
+.secrets/
+
+# ── IDE / OS ────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Misc local ──────────────────────────────────────────────
+tmp/
+temp/
+*.tmp

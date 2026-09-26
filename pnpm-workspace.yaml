@@ -1,0 +1,9 @@
+packages:
+  - 'frontend'
+  - 'backend'
+  - 'engine/typescript'
+allowBuilds:
+  argon2: true
+  esbuild: true
+  mongodb-memory-server: true
+  msgpackr-extract: true

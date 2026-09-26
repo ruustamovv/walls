@@ -1,0 +1,77 @@
+# PROJECT_NEXUS — local service graph (Phase DB-01: MongoDB + Redis).
+# Usage: `docker compose up -d mongodb redis` then run backend/frontend via pnpm.
+# Full stack: `docker compose --profile full up --build`.
+# PostgreSQL REMOVED — see docs/architecture/legacy-postgres-prisma-schema.md.
+
+services:
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DB_NAME: project_nexus
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    profiles:
+      - full
+
+  python-engine:
+    build: ./engine/python
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./engine/experiments/results:/app/experiments/results
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  mongodata:
+  redisdata:

@@ -1,0 +1,34 @@
+{
+  "name": "project-nexus",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PROJECT_NEXUS — original competitive wall-and-pawn strategy platform (dev codename)",
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:all": "pnpm install -r",
+    "dev": "pnpm --parallel dev",
+    "dev:frontend": "pnpm --filter ./frontend dev",
+    "dev:backend": "pnpm --filter ./backend dev",
+    "dev:engine": "pnpm --filter ./engine/typescript dev",
+    "db:setup": "pnpm --filter ./backend db:setup",
+    "db:seed": "pnpm --filter ./backend db:seed",
+    "db:indexes": "pnpm --filter ./backend db:indexes",
+    "db:reset:dev": "pnpm --filter ./backend db:reset:dev",
+    "db:health": "pnpm --filter ./backend db:health",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter ./tests e2e",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build",
+    "env:check": "node scripts/setup/env-check.mjs",
+    "owner:create": "node scripts/setup/owner-create.mjs",
+    "simulate": "python -m engine.python.simulation.run --games 1000",
+    "benchmark:engine": "pnpm --filter ./engine/typescript benchmark"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

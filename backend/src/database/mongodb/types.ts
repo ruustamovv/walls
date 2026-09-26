@@ -1,0 +1,152 @@
+/**
+ * MongoDB domain types — plain TS interfaces decoupled from BSON.
+ * Repositories map between these and stored documents.
+ * IDs are strings (hex ObjectId) at the domain boundary.
+ */
+
+export type UserRole = 'USER' | 'MODERATOR' | 'ADMIN' | 'OWNER';
+export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'BANNED' | 'DELETED';
+export type GameStatus = 'WAITING' | 'ACTIVE' | 'FINISHED' | 'ABORTED';
+
+export interface UserDoc {
+  _id: string;
+  email: string;
+  username: string;
+  passwordHash: string;
+  role: UserRole;
+  status: UserStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface ProfileDoc {
+  _id: string;
+  userId: string;
+  displayName?: string;
+  bio?: string;
+  avatarUrl?: string;
+  country?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SessionDoc {
+  _id: string;
+  userId: string;
+  userAgent?: string;
+  ip?: string;
+  expiresAt: Date;
+  createdAt: Date;
+}
+
+export interface RatingDoc {
+  _id: string;
+  userId: string;
+  mode: string;
+  rating: number;
+  deviation: number;
+  volatility: number;
+  games: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  peak: number;
+  updatedAt: Date;
+}
+
+export interface RatingHistoryDoc {
+  _id: string;
+  userId: string;
+  mode: string;
+  gameId?: string;
+  before: number;
+  after: number;
+  createdAt: Date;
+}
+
+export interface GamePlayerSnapshot {
+  userId: string;
+  seat: 0 | 1;
+  usernameAtStart: string;
+  ratingAtStart: number;
+  clockMs: number;
+}
+
+export interface GameDoc {
+  _id: string;
+  /** Engine-side game id (g_...) linking the live record; absent on legacy docs. */
+  engineId?: string;
+  rulesVersion: string;
+  engineVersion: string;
+  mode: string;
+  timeControl: string;
+  boardSize: number;
+  wallCount: number;
+  players: GamePlayerSnapshot[];
+  status: GameStatus;
+  result?: { winnerSeat: 0 | 1 | null; reason: string };
+  currentTurn: 0 | 1;
+  moveCount: number;
+  clocks?: { baseMs: number; incrementMs: number };
+  createdAt: Date;
+  startedAt?: Date;
+  finishedAt?: Date;
+  finalStateHash?: string;
+  version: number;
+}
+
+export interface GameMoveDoc {
+  _id: string;
+  gameId: string;
+  sequence: number;
+  playerId: string;
+  seat: 0 | 1;
+  action: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } };
+  timestamp: Date;
+  serverTimeMs: number;
+  stateHash: string;
+  clockAfterMs?: number;
+}
+
+export interface ReplayDoc {
+  _id: string;
+  gameId: string;
+  rulesVersion: string;
+  engineVersion: string;
+  initialState: unknown;
+  actions: GameMoveDoc['action'][];
+  result?: GameDoc['result'];
+  hash: string;
+  visibility: 'public' | 'friends' | 'unlisted' | 'private';
+  createdAt: Date;
+}
+
+export interface TournamentDoc {
+  _id: string;
+  title: string;
+  status: string;
+  mode: string;
+  timeControl: string;
+  startAt?: Date;
+  endAt?: Date;
+  createdAt: Date;
+}
+
+export interface NotificationDoc {
+  _id: string;
+  userId: string;
+  kind: string;
+  title: string;
+  body?: string;
+  read: boolean;
+  createdAt: Date;
+}
+
+export interface PuzzleDoc {
+  _id: string;
+  fen_like?: string;
+  prompt: string;
+  solution: unknown;
+  rating: number;
+  createdAt: Date;
+}
