@@ -24,7 +24,9 @@ const FEATURE_OF = {
   OPENROUTER_API_KEY: "AI/openrouter",
   AI_MODEL_CHAT: "AI/chat", AI_MODEL_ANALYSIS: "AI/review", AI_MODEL_TTS: "AI/tts",
   S3_ENDPOINT: "storage", S3_BUCKET: "storage", S3_ACCESS_KEY: "storage",
-  S3_SECRET_KEY: "storage", SENTRY_DSN: "monitoring",
+  S3_SECRET_KEY: "storage", SENTRY_DSN: "monitoring", OTEL_ENDPOINT: "monitoring",
+  GOOGLE_CLIENT_ID: "auth/google", GOOGLE_CLIENT_SECRET: "auth/google",
+  GITHUB_CLIENT_ID: "auth/github", GITHUB_CLIENT_SECRET: "auth/github",
   SMTP_HOST: "email", SMTP_USER: "email", SMTP_PASS: "email",
   STRIPE_SECRET_KEY: "payments", OWNER_INITIAL_PASSWORD: "owner bootstrap",
 };

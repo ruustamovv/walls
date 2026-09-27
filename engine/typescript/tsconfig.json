@@ -11,6 +11,9 @@
     "rules/**/*.ts",
     "replay/**/*.ts",
     "bots/**/*.ts",
+    "review/**/*.ts",
+    "puzzles/**/*.ts",
+    "multi/**/*.ts",
     "benchmark/**/*.ts",
     "tests/**/*.ts",
     "index.ts"

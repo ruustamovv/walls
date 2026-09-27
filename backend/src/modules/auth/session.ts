@@ -72,6 +72,105 @@ function randomId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * Redis-backed sessions: shared across backend instances, TTL-enforced by
+ * Redis itself (SET EX). Falls back to memory when Redis is unreachable —
+ * see createSessionStore().
+ */
+export class RedisSessionStore implements SessionStore {
+  private key(id: string): string {
+    const prefix = process.env['REDIS_PREFIX'] ?? 'pn';
+    return `${prefix}:sess:${id}`;
+  }
+
+  private async redis(): Promise<{ get(k: string): Promise<string | null>; set(k: string, v: string, mode: string, ttl: number): Promise<unknown>; del(...k: string[]): Promise<unknown>; scan(c: string, o1: string, o2: string, o3: string, o4: number): Promise<[string, string[]]> } | null> {
+    try {
+      const { getRedis } = await import('../../database/redis/client.js');
+      return getRedis() as unknown as {
+        get(k: string): Promise<string | null>;
+        set(k: string, v: string, mode: string, ttl: number): Promise<unknown>;
+        del(...k: string[]): Promise<unknown>;
+        scan(c: string, o1: string, o2: string, o3: string, o4: number): Promise<[string, string[]]>;
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async save(session: SessionRecord): Promise<void> {
+    const r = await this.redis();
+    if (r === null) throw new Error('redis unavailable');
+    const ttlSec = Math.max(60, Math.floor((session.expiresAt - Date.now()) / 1000));
+    await r.set(this.key(session.id), JSON.stringify(session), 'EX', ttlSec);
+  }
+
+  async get(id: string): Promise<SessionRecord | null> {
+    const r = await this.redis();
+    if (r === null) throw new Error('redis unavailable');
+    const raw = await r.get(this.key(id));
+    if (raw === null) return null;
+    try {
+      const s = JSON.parse(raw) as SessionRecord;
+      if (s.expiresAt <= Date.now()) return null;
+      return s;
+    } catch {
+      return null;
+    }
+  }
+
+  async delete(id: string): Promise<void> {
+    const r = await this.redis();
+    if (r === null) return;
+    await r.del(this.key(id)).catch(() => undefined);
+  }
+
+  async deleteByUser(userId: string): Promise<number> {
+    const r = await this.redis();
+    if (r === null) return 0;
+    // Sessions are keyed by id; scan values to match the owner.
+    let cursor = '0';
+    let removed = 0;
+    const prefix = process.env['REDIS_PREFIX'] ?? 'pn';
+    for (let guard = 0; guard < 50; guard++) {
+      const [next, keys] = await r.scan(cursor, 'MATCH', `${prefix}:sess:*`, 'COUNT', 100).catch(() => ['0', []] as [string, string[]]);
+      cursor = next;
+      for (const k of keys) {
+        const raw = await r.get(k).catch(() => null);
+        if (raw === null) continue;
+        try {
+          const s = JSON.parse(raw) as SessionRecord;
+          if (s.userId === userId) {
+            await r.del(k).catch(() => undefined);
+            removed++;
+          }
+        } catch {
+          // ignore corrupt entries
+        }
+      }
+      if (cursor === '0') break;
+    }
+    return removed;
+  }
+}
+
+let redisSessionsOk: boolean | null = null;
+let redisSessionsCheckedAt = 0;
+
+/** Prefer shared Redis sessions; memory fallback keeps offline dev usable. */
+export async function createSessionStore(): Promise<SessionStore> {
+  if (redisSessionsOk !== null && Date.now() - redisSessionsCheckedAt < 30000) {
+    return redisSessionsOk ? new RedisSessionStore() : new InMemorySessionStore();
+  }
+  try {
+    const { connectRedis } = await import('../../database/redis/client.js');
+    redisSessionsOk = await connectRedis();
+  } catch {
+    redisSessionsOk = false;
+  }
+  redisSessionsCheckedAt = Date.now();
+  return redisSessionsOk ? new RedisSessionStore() : new InMemorySessionStore();
+}
+
 export class SessionService {
   private readonly store: SessionStore;
   private readonly ttlMs: number;

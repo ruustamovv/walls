@@ -64,6 +64,27 @@ describe('games service', () => {
     assert.throws(() => svc.resign(g.id, 'u1'));
   });
 
+  it('draw offers end the game by agreement when accepted', () => {
+    const svc = new GamesService();
+    const g = svc.create({ creatorId: 'u1', opponentId: 'u2' });
+    svc.offerDraw(g.id, 'u1');
+    assert.equal(g.drawOfferBy, 0);
+    assert.throws(() => svc.respondDraw(g.id, 'u1', true)); // cannot answer own offer
+    const done = svc.respondDraw(g.id, 'u2', true);
+    assert.equal(done.status, 'finished');
+    assert.equal(done.winnerSeat, null);
+    assert.equal(done.finishReason, 'draw');
+  });
+
+  it('declined draws clear the offer and play continues', () => {
+    const svc = new GamesService();
+    const g = svc.create({ creatorId: 'u1', opponentId: 'u2' });
+    svc.offerDraw(g.id, 'u2');
+    svc.respondDraw(g.id, 'u1', false);
+    assert.equal(g.drawOfferBy, null);
+    assert.equal(g.status, 'active');
+  });
+
   it('timeout flags the player to move and awards the other seat', () => {
     const svc = new GamesService();
     const g = svc.create({ creatorId: 'u1', opponentId: 'u2', timeControl: '1+0' });

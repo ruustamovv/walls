@@ -4,7 +4,7 @@
  */
 import { Link } from 'react-router-dom';
 import { BOTS } from '../../../../engine/typescript/index.js';
-import { Badge, Card } from '../../components/ui/primitives.js';
+import { Avatar, Badge, Button, Card, DivisionBadge } from '../../components/ui/primitives.js';
 
 export default function BotsPage() {
   return (
@@ -19,17 +19,20 @@ export default function BotsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 12 }}>
         {BOTS.map((b) => (
           <Card key={b.id}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0 }}>{b.name}</h3>
-              <Badge tone={b.difficulty >= 4 ? 'bad' : b.difficulty >= 2 ? 'warn' : 'good'}>★ {b.rating}</Badge>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+              <Avatar name={b.name} size={40} />
+              <div>
+                <h3 className="font-display" style={{ margin: 0 }}>{b.name}</h3>
+                <DivisionBadge rating={b.rating} />
+              </div>
+              <span style={{ marginLeft: 'auto' }}>
+                <Badge tone={b.difficulty >= 4 ? 'bad' : b.difficulty >= 2 ? 'warn' : 'good'}>Tier {b.difficulty}</Badge>
+              </span>
             </div>
             <p style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 13, margin: '6px 0' }}>{b.style}</p>
             <p style={{ color: 'var(--muted)', fontSize: 14, margin: '0 0 12px', minHeight: 60 }}>{b.description}</p>
-            <Link
-              to={`/play/bot?bot=${b.id}`}
-              style={{ display: 'inline-block', background: 'var(--primary)', color: '#fff', padding: '8px 16px', borderRadius: 10, fontWeight: 700 }}
-            >
-              Play {b.name}
+            <Link to={`/play/bot?bot=${b.id}`} style={{ display: 'inline-block', textDecoration: 'none' }}>
+              <Button size="sm">Play {b.name}</Button>
             </Link>
           </Card>
         ))}

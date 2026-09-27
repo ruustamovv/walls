@@ -59,6 +59,18 @@ services:
     profiles:
       - full
 
+  admin:
+    build: ./admin
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "5174:80"
+    depends_on:
+      - backend
+    profiles:
+      - full
+
   python-engine:
     build: ./engine/python
     restart: unless-stopped

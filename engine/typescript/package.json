@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json --noUnusedLocals --noUnusedParameters",
     "test": "pnpm run build && node --test \"dist/tests/**/*.test.js\"",
-    "benchmark": "pnpm run build && node dist/benchmark/bench.js"
+    "benchmark": "pnpm run build && node dist/benchmark/bench.js",
+    "calibrate": "pnpm run build && node dist/benchmark/calibrate.js"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

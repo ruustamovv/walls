@@ -20,6 +20,13 @@ export async function ensureIndexes(db: Db): Promise<string[]> {
   await ensure(COLLECTIONS.profiles, { userId: 1 }, { unique: true });
   await ensure(COLLECTIONS.sessions, { userId: 1 });
   await ensure(COLLECTIONS.sessions, { expiresAt: 1 });
+  await ensure(COLLECTIONS.password_resets, { tokenHash: 1 }, { unique: true, name: 'tokenHash_1' });
+  await ensure(COLLECTIONS.user_settings, { userId: 1 }, { unique: true, name: 'user_settings_user' });
+  await ensure(COLLECTIONS.announcements, { startsAt: -1 });
+  await ensure(COLLECTIONS.bans, { userId: 1, createdAt: -1 });
+  await ensure(COLLECTIONS.ai_quotas, { userId: 1, day: 1 }, { unique: true, name: 'ai_quotas_user_day' });
+  await ensure(COLLECTIONS.analytics_events, { name: 1, createdAt: -1 });
+  await ensure(COLLECTIONS.password_resets, { expiresAt: 1 });
 
   await ensure(COLLECTIONS.games, { engineId: 1 }, { unique: true, sparse: true, name: 'engineId_1' });
   await ensure(COLLECTIONS.games, { status: 1, createdAt: -1 });
@@ -36,6 +43,16 @@ export async function ensureIndexes(db: Db): Promise<string[]> {
   await ensure(COLLECTIONS.replays, { gameId: 1 }, { unique: true });
   await ensure(COLLECTIONS.replays, { hash: 1 });
 
+  await ensure(COLLECTIONS.friends, { userId: 1 });
+  await ensure(COLLECTIONS.friend_requests, { toUserId: 1, status: 1 });
+  await ensure(COLLECTIONS.blocks, { userId: 1, blockedId: 1 }, { unique: true, name: 'blocks_user_blocked' });
+  await ensure(COLLECTIONS.puzzles, { puzzleId: 1 }, { unique: true, sparse: true, name: 'puzzleId_1' });
+  await ensure(COLLECTIONS.clubs, { createdAt: -1 });
+  await ensure(COLLECTIONS.club_members, { clubId: 1 });
+  await ensure(COLLECTIONS.club_members, { userId: 1 });
+  await ensure(COLLECTIONS.chat_messages, { channelId: 1, createdAt: -1 });
+  await ensure(COLLECTIONS.entitlements, { userId: 1, entitlement: 1 }, { unique: true, name: 'entitlements_user_ent' });
+  await ensure(COLLECTIONS.reports, { status: 1, createdAt: -1 });
   await ensure(COLLECTIONS.notifications, { userId: 1, createdAt: -1 });
   await ensure(COLLECTIONS.tournaments, { status: 1, startAt: 1 });
 

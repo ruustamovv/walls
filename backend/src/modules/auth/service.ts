@@ -9,7 +9,7 @@
  */
 import { AuthError } from '../../common/errors/errors.js';
 import { hashPassword, verifyPassword } from './hashing.js';
-import { SessionService, type SessionRecord } from './session.js';
+import { SessionService, createSessionStore, type SessionRecord } from './session.js';
 import { MemoryUserStore, createMongoUserStore, type UserStore } from './store.js';
 
 export interface UserRecord {
@@ -67,6 +67,21 @@ export class AuthService {
     };
   }
 
+  /** OAuth / trusted linking: find by verified email or create. */
+  async loginOAuth(input: { email: string; username: string; passwordHash: string }): Promise<AuthResult> {
+    const user = await this.store.findOrCreate({
+      email: input.email,
+      username: input.username,
+      passwordHash: input.passwordHash,
+    });
+    const session = await this.sessions.create(user.id);
+    return {
+      user: { id: user.id, email: user.email, username: user.username, role: user.role },
+      session,
+      rateLimitKey: `auth:oauth`,
+    };
+  }
+
   async logout(sessionId: string): Promise<void> {
     await this.sessions.revoke(sessionId);
   }
@@ -88,14 +103,19 @@ export const authService = new AuthService();
 let resolved: AuthService | null = null;
 
 /**
- * Production resolver: Mongo-backed accounts when the database is reachable,
- * otherwise the shared in-memory service (offline dev stays usable).
- * The decision is cached per process.
+ * Production resolver: Mongo-backed accounts + shared Redis sessions when
+ * the infrastructure is reachable, otherwise the in-memory service
+ * (offline dev stays usable). Decisions are cached per process.
  */
 export async function getAuthService(): Promise<AuthService> {
   if (resolved !== null) return resolved;
   const mongoStore = await createMongoUserStore();
-  resolved = mongoStore === null ? authService : new AuthService(mongoStore);
+  if (mongoStore === null) {
+    resolved = authService;
+    return resolved;
+  }
+  const sessions = new SessionService(await createSessionStore());
+  resolved = new AuthService(mongoStore, sessions);
   return resolved;
 }
 

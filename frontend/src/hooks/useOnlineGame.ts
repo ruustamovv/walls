@@ -13,10 +13,17 @@ function wsBase(): string {
   return env?.['VITE_WS_URL'] ?? window.location.origin;
 }
 
+export interface ChatMessage {
+  from: string;
+  body: string;
+  at: number;
+}
+
 export interface OnlineGame {
   snapshot: GameSnapshot | null;
   /** Action log rebuilt from authoritative snapshots (for the timeline). */
   actions: Action[];
+  chat: ChatMessage[];
   meta: ({ id: string; username: string; rating: number } | null)[] | null;
   mySeat: 0 | 1 | null;
   connected: boolean;
@@ -24,12 +31,16 @@ export interface OnlineGame {
   sendMove: (to: Pos) => void;
   sendWall: (wall: Wall) => void;
   sendResign: () => void;
+  sendChat: (body: string) => void;
+  sendDrawOffer: () => void;
+  sendDrawResponse: (accept: boolean) => void;
   refresh: () => void;
 }
 
 export function useOnlineGame(gameId: string, userId: string | null): OnlineGame {
   const [snapshot, setSnapshot] = useState<GameSnapshot | null>(null);
   const [actions, setActions] = useState<Action[]>([]);
+  const [chat, setChat] = useState<ChatMessage[]>([]);
   const [meta, setMeta] = useState<OnlineGame['meta']>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +97,9 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
     socket.on('game:state', (snap: GameSnapshot) => {
       if (snap.id === gameId) ingest(snap);
     });
+    socket.on('game:chat', (msg: ChatMessage) => {
+      setChat((c) => [...c.slice(-29), msg]);
+    });
     socket.on('game:error', (payload: { message?: string }) => {
       setError(payload.message ?? 'Move rejected');
     });
@@ -117,6 +131,18 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
     socketRef.current?.emit('game:resign', { gameId });
   }, [gameId]);
 
+  const sendChat = useCallback((body: string) => {
+    socketRef.current?.emit('game:chat', { gameId, body });
+  }, [gameId]);
+
+  const sendDrawOffer = useCallback(() => {
+    socketRef.current?.emit('game:draw_offer', { gameId });
+  }, [gameId]);
+
+  const sendDrawResponse = useCallback((accept: boolean) => {
+    socketRef.current?.emit('game:draw_response', { gameId, accept });
+  }, [gameId]);
+
   const mySeat: 0 | 1 | null = (() => {
     if (userId === null || snapshot === null) return null;
     if (snapshot.seats[0] === userId) return 0;
@@ -124,5 +150,5 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
     return null;
   })();
 
-  return { snapshot, actions, meta, mySeat, connected, error, sendMove, sendWall, sendResign, refresh };
+  return { snapshot, actions, chat, meta, mySeat, connected, error, sendMove, sendWall, sendResign, sendChat, sendDrawOffer, sendDrawResponse, refresh };
 }

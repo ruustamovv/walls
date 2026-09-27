@@ -87,6 +87,40 @@ export class UserRepository {
     return raw === null ? null : toDoc(raw);
   }
 
+  async search(prefix: string, limit = 20): Promise<UserDoc[]> {
+    const clean = prefix.trim().slice(0, 24);
+    if (clean.length === 0) return [];
+    const rows = await this.users
+      .find({ username: { $regex: `^${clean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, $options: 'i' } })
+      .limit(Math.min(Math.max(limit, 1), 50))
+      .toArray();
+    return rows.map((r) => toDoc(r as Record<string, unknown>));
+  }
+
+  async count(): Promise<number> {
+    return this.users.countDocuments({});
+  }
+
+  async updatePassword(id: string, passwordHash: string): Promise<boolean> {
+    const oid = tryToObjectId(id);
+    if (oid === null) return false;
+    const res = await this.users.updateOne(
+      { _id: oid },
+      { $set: { passwordHash, updatedAt: new Date() } },
+    );
+    return res.matchedCount === 1;
+  }
+
+  async updateRole(id: string, role: UserDoc['role']): Promise<boolean> {
+    const oid = tryToObjectId(id);
+    if (oid === null) return false;
+    const res = await this.users.updateOne(
+      { _id: oid },
+      { $set: { role, updatedAt: new Date() } },
+    );
+    return res.matchedCount === 1;
+  }
+
   async updateStatus(id: string, status: UserStatus): Promise<boolean> {
     const oid = tryToObjectId(id);
     if (oid === null) return false;

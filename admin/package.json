@@ -1,0 +1,28 @@
+{
+  "name": "@nexus/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "PROJECT_NEXUS owner control center — standalone admin console (own port, own folder, same backend API)",
+  "scripts": {
+    "dev": "vite --port 5174",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview --port 5174",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "test": "echo \"admin console: no unit tests (covered by backend admin E2E)\" && exit 0"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.27.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8"
+  }
+}

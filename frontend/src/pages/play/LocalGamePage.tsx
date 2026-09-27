@@ -5,12 +5,14 @@
 import { useMemo } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { findShortestPath, getBot } from '../../../../engine/typescript/index.js';
+import PathMeter from '../../components/game/PathMeter.js';
 import GameBoard from '../../components/game/GameBoard.js';
 import PlayerCard from '../../components/game/PlayerCard.js';
 import MoveList from '../../components/game/MoveList.js';
 import ResultModal from '../../components/game/ResultModal.js';
 import { Button, Card } from '../../components/ui/primitives.js';
 import { useLocalGame } from '../../hooks/useLocalGame.js';
+import { useTheme } from '../../hooks/useTheme.js';
 
 export default function LocalGamePage() {
   const [params] = useSearchParams();
@@ -20,6 +22,7 @@ export default function LocalGamePage() {
   const bot = getBot(params.get('bot') ?? 'rookie') ?? getBot('rookie');
   const size = Math.min(19, Math.max(5, Number(params.get('size') ?? 9) || 9));
   const walls = Math.min(30, Math.max(0, Number(params.get('walls') ?? 10) || 0));
+  useTheme('arena');
   const clockSec = Math.max(0, Number(params.get('clock') ?? 0) || 0);
   const incSec = Math.max(0, Number(params.get('inc') ?? 0) || 0);
 
@@ -94,16 +97,30 @@ export default function LocalGamePage() {
               accent={0}
             />
           </div>
-          {game.message !== '' && <p role="status" style={{ color: '#b91c1c' }}>{game.message}</p>}
+          {game.message !== '' && <p role="status" style={{ color: 'var(--bad)' }}>{game.message}</p>}
         </div>
         <div style={{ display: 'grid', gap: 12 }}>
           <Card>
             <h3 style={{ margin: '0 0 8px' }}>Moves</h3>
-            <MoveList actions={actions} />
+            <MoveList actions={actions} size={size} />
+          </Card>
+          <Card>
+            <PathMeter
+              own={findShortestPath(state, 0).length}
+              opp={findShortestPath(state, 1).length}
+            />
           </Card>
           <Card>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={game.restart}>Restart</Button>
+              <Button
+                variant="ghost"
+                disabled={actions.length === 0 || game.botThinking || done}
+                onClick={() => game.undo(mode === 'bot' ? 2 : 1)}
+                title={mode === 'bot' ? 'Take back your move and the bot reply' : 'Take back one ply'}
+              >
+                Undo
+              </Button>
               <Button variant="subtle" onClick={() => navigate('/play')}>New game</Button>
             </div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0' }}>

@@ -24,6 +24,14 @@ export function timeControlName(id: string): string {
   return TC_NAMES[id] ?? id;
 }
 
+/** Rating bucket matching the backend (finish.ts ratingModeFor). */
+export function ratingModeFor(timeControlId: string): string {
+  if (timeControlId.startsWith('1+')) return 'bullet';
+  if (timeControlId.startsWith('3+')) return 'blitz';
+  if (timeControlId.startsWith('5+')) return 'rapid';
+  return 'casual';
+}
+
 export function resultLabel(winnerSeat: 0 | 1 | null, reason: string | null, perspective: 0 | 1 | null): string {
   if (winnerSeat === null) return 'Draw';
   if (perspective !== null) return winnerSeat === perspective ? 'You win' : 'You lose';
@@ -33,5 +41,6 @@ export function resultLabel(winnerSeat: 0 | 1 | null, reason: string | null, per
 export function reasonLabel(reason: string | null): string {
   if (reason === 'timeout') return 'on time';
   if (reason === 'resign') return 'by resignation';
+  if (reason === 'draw') return 'by agreement';
   return 'reached the goal';
 }

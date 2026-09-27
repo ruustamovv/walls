@@ -65,6 +65,16 @@ export class GameRepository {
     return raw === null ? null : gameToDoc(raw as Record<string, unknown>);
   }
 
+  /** Newest game docs overall (admin / spectator directories). */
+  async listRecent(limit = 20): Promise<GameDoc[]> {
+    const rows = await this.db.collection(COLLECTIONS.games)
+      .find({})
+      .sort({ createdAt: -1 })
+      .limit(Math.min(Math.max(limit, 1), 100))
+      .toArray();
+    return rows.map((r) => gameToDoc(r as Record<string, unknown>));
+  }
+
   /** Recent games for a user, newest first (profile history). */
   async listByUser(userId: string, limit = 20): Promise<GameDoc[]> {
     const rows = await this.db.collection(COLLECTIONS.games)

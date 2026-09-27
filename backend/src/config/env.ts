@@ -30,6 +30,7 @@ const OptionalSchema = z.object({
   REDIS_PREFIX: z.string().default('pn'),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
+  ADMIN_URL: z.string().default('http://localhost:5174'),
   BACKEND_URL: z.string().default('http://localhost:3000'),
   LOG_LEVEL: LogLevelSchema.default('info'),
   MAINTENANCE_MODE: z.coerce.boolean().default(false),

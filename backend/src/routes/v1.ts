@@ -26,6 +26,19 @@ import { activeProvider, providerStatuses, CoachRequestSchema } from '../modules
 
 const memoryQueue = new MatchmakingQueue(new InMemoryQueueStore());
 const redisQueue = new MatchmakingQueue(new RedisQueueStore());
+
+/** Live queue depths for the admin dashboard (memory always, Redis best-effort). */
+export async function matchmakingDepths(): Promise<{ memory: number; redisRanked: number | null; redisOk: boolean }> {
+  const memory = await memoryQueue.size().catch(() => -1);
+  try {
+    const { connectRedis } = await import('../database/redis/client.js');
+    if (!(await connectRedis(800))) return { memory, redisRanked: null, redisOk: false };
+    const depth = await redisQueue.size().catch(() => null);
+    return { memory, redisRanked: depth, redisOk: true };
+  } catch {
+    return { memory, redisRanked: null, redisOk: false };
+  }
+}
 /** userId -> gameId for matches created while the player was polling. */
 const matchByUser = new Map<string, string>();
 
@@ -109,6 +122,16 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     const parsed = RegisterSchema.safeParse(req.body);
     if (!parsed.success) throw new ValidationError('Invalid registration', { body: ['invalid'] });
     const res = await (await getAuthService()).register(parsed.data);
+    void (async () => {
+      try {
+        const { getMongoDb } = await import('../database/mongodb/client.js');
+        const { trackEvent } = await import('../database/mongodb/repositories/ops.repository.js');
+        const db = await getMongoDb();
+        await trackEvent(db, res.user.id, 'signup', {});
+      } catch {
+        // telemetry advisory
+      }
+    })();
     void reply.setCookie('nexus_session', res.session.id, {
       httpOnly: true,
       sameSite: 'lax',
@@ -138,6 +161,127 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  /** @openapi POST /api/v1/auth/forgot — request a reset link (always generic). */
+  app.post('/api/v1/auth/forgot', async (req) => {
+    const body = (req.body ?? {}) as { email?: string };
+    if (typeof body.email === 'string' && body.email.length > 0) {
+      const { requestReset } = await import('../modules/auth/passwordReset.js');
+      await requestReset(body.email);
+    }
+    return { ok: true, message: 'If that address exists, a reset link is on its way.' };
+  });
+
+  /** @openapi POST /api/v1/auth/reset — consume a reset token. */
+  app.post('/api/v1/auth/reset', async (req) => {
+    const body = (req.body ?? {}) as { token?: string; password?: string };
+    if (typeof body.token !== 'string' || typeof body.password !== 'string' || body.password.length < 8 || body.password.length > 128) {
+      throw new ValidationError('Invalid reset request');
+    }
+    const { confirmReset } = await import('../modules/auth/passwordReset.js');
+    const svc = await getAuthService();
+    const ok = await confirmReset(body.token, body.password, (uid) => svc.logoutAll(uid));
+    if (!ok) throw new ValidationError('Reset link is invalid or expired');
+    return { ok: true };
+  });
+
+  /** @openapi GET /api/v1/auth/oauth/status — which social buttons to show. */
+  app.get('/api/v1/auth/oauth/status', async () => {
+    const { oauthStatus } = await import('../modules/auth/oauth.js');
+    return oauthStatus();
+  });
+
+  /** @openapi GET /api/v1/auth/oauth/:provider — begin social login. */
+  app.get('/api/v1/auth/oauth/:provider', async (req, reply) => {
+    const { provider } = req.params as { provider: string };
+    if (provider !== 'google' && provider !== 'github') throw new ValidationError('Unknown provider');
+    const q = req.query as { next?: string };
+    const { authorizeUrl } = await import('../modules/auth/oauth.js');
+    try {
+      const url = authorizeUrl(provider, typeof q.next === 'string' ? q.next : '/play');
+      void reply.redirect(url);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'OAuth unavailable');
+    }
+  });
+
+  /** @openapi GET /api/v1/auth/oauth/:provider/callback — finish social login. */
+  app.get('/api/v1/auth/oauth/:provider/callback', async (req, reply) => {
+    const { provider } = req.params as { provider: string };
+    if (provider !== 'google' && provider !== 'github') throw new ValidationError('Unknown provider');
+    const q = req.query as { code?: string; state?: string };
+    const { completeOAuth, oauthCallbackTarget } = await import('../modules/auth/oauth.js');
+    if (typeof q.code !== 'string' || typeof q.state !== 'string') {
+      void reply.redirect(oauthCallbackTarget('/play', false));
+      return;
+    }
+    try {
+      const { sessionId, next } = await completeOAuth(provider, q.code, q.state);
+      void reply
+        .setCookie('nexus_session', sessionId, { httpOnly: true, sameSite: 'lax', path: '/' })
+        .redirect(oauthCallbackTarget(next, true));
+    } catch {
+      void reply.redirect(oauthCallbackTarget('/play', false));
+    }
+  });
+
+  /** @openapi POST /api/v1/auth/password — change password (knowing the old one). */
+  app.post('/api/v1/auth/password', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { current?: string; next?: string };
+    if (typeof body.current !== 'string' || typeof body.next !== 'string' || body.next.length < 8 || body.next.length > 128) {
+      throw new ValidationError('Invalid password change');
+    }
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+    const { verifyPassword, hashPassword } = await import('../modules/auth/hashing.js');
+    const db = await getMongoDb();
+    const users = new UserRepository(db);
+    const doc = await users.findById(userId);
+    if (doc === null) throw new AuthError('Invalid session');
+    if (!(await verifyPassword(doc.passwordHash, body.current))) throw new AuthError('Current password is wrong');
+    await users.updatePassword(userId, await hashPassword(body.next));
+    return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/auth/logout-all — revoke every session. */
+  app.post('/api/v1/auth/logout-all', async (req) => {
+    const userId = await requireUserId(req);
+    const count = await (await getAuthService()).logoutAll(userId);
+    return { ok: true, revoked: count };
+  });
+
+  /** @openapi POST /api/v1/auth/delete — close my account. */
+  app.post('/api/v1/auth/delete', async (req) => {
+    const userId = await requireUserId(req);
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+    const db = await getMongoDb();
+    await new UserRepository(db).updateStatus(userId, 'DELETED');
+    await (await getAuthService()).logoutAll(userId);
+    return { ok: true, message: 'Account closed. Competitive records stay anonymized for leaderboard integrity.' };
+  });
+
+  /** @openapi GET /api/v1/settings — my preferences. */
+  app.get('/api/v1/settings', async (req) => {
+    const userId = await requireUserId(req);
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { SettingsRepository } = await import('../database/mongodb/repositories/settings.repository.js');
+    const db = await getMongoDb();
+    return new SettingsRepository(db).get(userId);
+  });
+
+  /** @openapi PUT /api/v1/settings — save my preferences. */
+  app.put('/api/v1/settings', async (req) => {
+    const userId = await requireUserId(req);
+    const { SettingsSchema } = await import('../common/validation/settings.js');
+    const parsed = SettingsSchema.safeParse(req.body ?? {});
+    if (!parsed.success) throw new ValidationError('Invalid settings');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { SettingsRepository } = await import('../database/mongodb/repositories/settings.repository.js');
+    const db = await getMongoDb();
+    return new SettingsRepository(db).save(userId, parsed.data);
+  });
+
   /** @openapi GET /api/v1/auth/me — current session user. */
   app.get('/api/v1/auth/me', async (req) => {
     const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
@@ -154,6 +298,18 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     const userId = await requireUserId(req);
     const parsed = CreateGameSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw new ValidationError('Invalid game options');
+    if (parsed.data.opponentId !== undefined) {
+      // Respect challenge preferences (best-effort; open when Mongo is down).
+      try {
+        const { getMongoDb } = await import('../database/mongodb/client.js');
+        const { SettingsRepository } = await import('../database/mongodb/repositories/settings.repository.js');
+        const db = await getMongoDb();
+        const prefs = await new SettingsRepository(db).get(parsed.data.opponentId);
+        if (!prefs.allowChallenges) throw new ValidationError('That player is not accepting challenges');
+      } catch (err) {
+        if (err instanceof ValidationError) throw err;
+      }
+    }
     const g = gamesService.create({
       creatorId: userId,
       boardSize: parsed.data.boardSize,
@@ -253,6 +409,27 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     return gamesService.snapshot(g);
   });
 
+  /** @openapi POST /api/v1/games/:id/draw-offer — propose a draw. */
+  app.post('/api/v1/games/:id/draw-offer', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    return gamesService.snapshot(gamesService.offerDraw(id, userId));
+  });
+
+  /** @openapi POST /api/v1/games/:id/draw-response — answer a draw offer. */
+  app.post('/api/v1/games/:id/draw-response', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { accept?: boolean };
+    if (typeof body.accept !== 'boolean') throw new ValidationError('Invalid response');
+    const g = gamesService.respondDraw(id, userId, body.accept);
+    if (g.status === 'finished' && !g.settled) {
+      await settleFinishedGame(g);
+      await persistGameFinished(g);
+    }
+    return gamesService.snapshot(g);
+  });
+
   // ── Matchmaking ────────────────────────────────────
   /** @openapi POST /api/v1/matchmaking/join — join queue (anti-duplicate). */
   app.post('/api/v1/matchmaking/join', async (req) => {
@@ -283,6 +460,23 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     matchByUser.set(pair.a.userId, g.id);
     matchByUser.set(pair.b.userId, g.id);
     void persistGameCreated(g, ratingModeFor(g.timeControlId)).catch(() => undefined);
+    void (async () => {
+      try {
+        const { getMongoDb } = await import('../database/mongodb/client.js');
+        const { NotificationRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+        const { SettingsRepository } = await import('../database/mongodb/repositories/settings.repository.js');
+        const db = await getMongoDb();
+        const notifs = new NotificationRepository(db);
+        const settings = new SettingsRepository(db);
+        for (const uid of [pair.a.userId, pair.b.userId]) {
+          const prefs = await settings.get(uid).catch(() => null);
+          if (prefs !== null && !prefs.notifyMatches) continue;
+          await notifs.create({ userId: uid, kind: 'match', title: `Match found — ${pair.a.timeControl} ${pair.a.mode}`, body: g.id }).catch(() => undefined);
+        }
+      } catch {
+        // notifications are advisory
+      }
+    })();
     return { status: 'matched' as const, gameId: g.id };
   });
 
@@ -303,6 +497,405 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  // ── Friends / presence ─────────────────────────────
+  /** @openapi POST /api/v1/friends/request — send a friend request. */
+  app.post('/api/v1/friends/request', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { username?: string };
+    if (typeof body.username !== 'string' || body.username.length < 3) throw new ValidationError('Invalid username');
+    const { sendRequest } = await import('../modules/friends/service.js');
+    try {
+      return await sendRequest(userId, body.username);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Request failed');
+    }
+  });
+
+  /** @openapi GET /api/v1/friends/requests — incoming pending requests. */
+  app.get('/api/v1/friends/requests', async (req) => {
+    const userId = await requireUserId(req);
+    const { incomingRequests } = await import('../modules/friends/service.js');
+    return { requests: await incomingRequests(userId) };
+  });
+
+  /** @openapi POST /api/v1/friends/accept — accept a request. */
+  app.post('/api/v1/friends/accept', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { requestId?: string };
+    if (typeof body.requestId !== 'string') throw new ValidationError('Invalid request');
+    const { acceptRequest } = await import('../modules/friends/service.js');
+    const ok = await acceptRequest(userId, body.requestId);
+    if (!ok) throw new ValidationError('Request not found');
+    return { ok: true };
+  });
+
+  /** @openapi GET /api/v1/friends — friend list with presence. */
+  app.get('/api/v1/friends', async (req) => {
+    const userId = await requireUserId(req);
+    const { listFriends, heartbeat } = await import('../modules/friends/service.js');
+    // Reading your own list counts as activity for presence.
+    void heartbeat(userId).catch(() => undefined);
+    return { friends: await listFriends(userId) };
+  });
+
+  /** @openapi POST /api/v1/friends/block — block a player. */
+  app.post('/api/v1/friends/block', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { username?: string };
+    if (typeof body.username !== 'string') throw new ValidationError('Invalid username');
+    const { blockUser } = await import('../modules/friends/service.js');
+    try {
+      await blockUser(userId, body.username);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Block failed');
+    }
+    return { ok: true };
+  });
+
+  // ── Clubs ────────────────────────────────────────────
+  /** @openapi POST /api/v1/clubs — found a club. */
+  app.post('/api/v1/clubs', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { name?: string; description?: string };
+    if (typeof body.name !== 'string' || body.name.trim().length < 3) throw new ValidationError('Club name too short');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ClubRepository } = await import('../database/mongodb/repositories/club.repository.js');
+    const db = await getMongoDb();
+    try {
+      const club = await new ClubRepository(db).create(userId, body.name, typeof body.description === 'string' ? body.description : '');
+      return { club };
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Club creation failed');
+    }
+  });
+
+  /** @openapi GET /api/v1/clubs — browse clubs. */
+  app.get('/api/v1/clubs', async () => {
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ClubRepository } = await import('../database/mongodb/repositories/club.repository.js');
+    const db = await getMongoDb();
+    return { clubs: await new ClubRepository(db).list() };
+  });
+
+  /** @openapi GET /api/v1/clubs/:id — club detail with members. */
+  app.get('/api/v1/clubs/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ClubRepository } = await import('../database/mongodb/repositories/club.repository.js');
+    const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+    const db = await getMongoDb();
+    const clubs = new ClubRepository(db);
+    const club = await clubs.findById(id);
+    if (club === null) throw new ValidationError('Club not found');
+    const users = new UserRepository(db);
+    const members = await Promise.all(
+      (await clubs.members(id)).map(async (m) => ({
+        id: m.userId,
+        username: (await users.findById(m.userId).catch(() => null))?.username ?? 'unknown',
+        role: m.role,
+      })),
+    );
+    return { club, members };
+  });
+
+  /** @openapi POST /api/v1/clubs/:id/join — join a club. */
+  app.post('/api/v1/clubs/:id/join', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ClubRepository } = await import('../database/mongodb/repositories/club.repository.js');
+    const db = await getMongoDb();
+    const ok = await new ClubRepository(db).join(id, userId);
+    if (!ok) throw new ValidationError('Club not found');
+    return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/clubs/:id/leave — leave a club. */
+  app.post('/api/v1/clubs/:id/leave', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ClubRepository } = await import('../database/mongodb/repositories/club.repository.js');
+    const db = await getMongoDb();
+    await new ClubRepository(db).leave(id, userId);
+    return { ok: true };
+  });
+
+  /** @openapi GET /api/v1/clubs/:id/chat — recent club messages (members). */
+  app.get('/api/v1/clubs/:id/chat', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ClubRepository } = await import('../database/mongodb/repositories/club.repository.js');
+    const { ChatRepository } = await import('../database/mongodb/repositories/chat.repository.js');
+    const db = await getMongoDb();
+    const members = await new ClubRepository(db).members(id);
+    if (!members.some((m) => m.userId === userId)) throw new ValidationError('Club members only');
+    return { messages: await new ChatRepository(db).history(`club:${id}`, 30) };
+  });
+
+  // ── Tournaments ────────────────────────────────────────
+  /** @openapi POST /api/v1/tournaments — create (you auto-join). */
+  app.post('/api/v1/tournaments', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { title?: string; format?: string; timeControl?: string; mode?: string; rounds?: number; playersCap?: number };
+    const { createTournament } = await import('../modules/tournaments/service.js');
+    try {
+      const doc = await createTournament(userId, {
+        title: typeof body.title === 'string' ? body.title : '',
+        ...(body.format === 'single-elim' || body.format === 'round-robin' || body.format === 'swiss' ? { format: body.format } : {}),
+        ...(typeof body.timeControl === 'string' ? { timeControl: body.timeControl } : {}),
+        ...(typeof body.mode === 'string' ? { mode: body.mode } : {}),
+        ...(typeof body.rounds === 'number' ? { rounds: body.rounds } : {}),
+        ...(typeof body.playersCap === 'number' ? { playersCap: body.playersCap } : {}),
+      });
+      return { tournament: doc };
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Tournament creation failed');
+    }
+  });
+
+  /** @openapi GET /api/v1/tournaments — recent tournaments. */
+  app.get('/api/v1/tournaments', async () => {
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { TournamentRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+    const db = await getMongoDb();
+    return { tournaments: await new TournamentRepository(db).listRecent(20) };
+  });
+
+  /** @openapi GET /api/v1/tournaments/:id — detail, rounds, standings. */
+  app.get('/api/v1/tournaments/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const { tournamentDetail } = await import('../modules/tournaments/service.js');
+    const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const detail = await tournamentDetail(id).catch(() => null);
+    if (detail === null) throw new ValidationError('Tournament not found');
+    const db = await getMongoDb().catch(() => null);
+    const users = db === null ? null : new UserRepository(db);
+    const nameOf = async (uid: string | null): Promise<string | null> => {
+      if (uid === null || users === null) return uid;
+      if (!/^[0-9a-fA-F]{24}$/.test(uid)) return uid;
+      return (await users.findById(uid).catch(() => null))?.username ?? uid.slice(0, 8);
+    };
+    return {
+      tournament: detail.tournament,
+      players: await Promise.all(detail.players.map(async (uid) => ({ id: uid, username: await nameOf(uid) }))),
+      rounds: detail.rounds,
+      standings: await Promise.all(detail.standings.map(async (s) => ({ ...s, username: await nameOf(s.userId) }))),
+    };
+  });
+
+  /** @openapi POST /api/v1/tournaments/:id/join — enter. */
+  app.post('/api/v1/tournaments/:id/join', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { joinTournament } = await import('../modules/tournaments/service.js');
+    try {
+      await joinTournament(id, userId);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Join failed');
+    }
+    return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/tournaments/:id/open — open entries (owner). */
+  app.post('/api/v1/tournaments/:id/open', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { TournamentRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+    const { openTournament } = await import('../modules/tournaments/service.js');
+    const db = await getMongoDb();
+    const t = await new TournamentRepository(db).findById(id);
+    if (t === null) throw new ValidationError('Tournament not found');
+    if (t.ownerId !== userId) throw new ValidationError('Only the organizer can open entries');
+    try {
+      await openTournament(id);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Open failed');
+    }
+    return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/tournaments/:id/start — seed round 1 (owner). */
+  app.post('/api/v1/tournaments/:id/start', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { TournamentRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+    const { startTournament } = await import('../modules/tournaments/service.js');
+    const db = await getMongoDb();
+    const t = await new TournamentRepository(db).findById(id);
+    if (t === null) throw new ValidationError('Tournament not found');
+    if (t.ownerId !== userId) throw new ValidationError('Only the organizer can start');
+    try {
+      await startTournament(id);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Start failed');
+    }
+    return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/tournaments/:id/report — report a match winner. */
+  app.post('/api/v1/tournaments/:id/report', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { round?: number; matchIndex?: number; winnerId?: string };
+    if (typeof body.round !== 'number' || typeof body.matchIndex !== 'number' || typeof body.winnerId !== 'string') {
+      throw new ValidationError('Invalid report');
+    }
+    const { reportResult } = await import('../modules/tournaments/service.js');
+    try {
+      await reportResult(id, body.round, body.matchIndex, body.winnerId, userId);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Report failed');
+    }
+    return { ok: true };
+  });
+
+  // ── Premium (entitlements; payments provider selects later) ──
+  /** @openapi GET /api/v1/premium/status — tier + entitlements, honestly. */
+  app.get('/api/v1/premium/status', async (req) => {
+    const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
+    const sid = getSessionId({ cookies, headers: req.headers });
+    if (sid === null) {
+      return { tier: 'free' as const, entitlements: [], payments: 'disabled' as const, reason: 'no provider configured' };
+    }
+    const me = await (await getAuthService()).me(sid).catch(() => null);
+    if (me === null) {
+      return { tier: 'free' as const, entitlements: [], payments: 'disabled' as const, reason: 'no provider configured' };
+    }
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { EntitlementRepository } = await import('../database/mongodb/repositories/premium.repository.js');
+    const db = await getMongoDb().catch(() => null);
+    const entitlements = db === null ? [] : await new EntitlementRepository(db).list(me.id);
+    const provider = (process.env['PAYMENT_PROVIDER'] ?? 'none').trim().toLowerCase();
+    return {
+      tier: entitlements.length > 0 ? ('premium' as const) : ('free' as const),
+      entitlements,
+      payments: 'disabled' as const,
+      reason: provider === 'none'
+        ? 'no payment provider configured — entitlements are granted by admins/promos only'
+        : `provider "${provider}" selected but checkout is not implemented yet`,
+    };
+  });
+
+  // ── Notifications ────────────────────────────────────
+  /** @openapi GET /api/v1/notifications — my inbox, newest first. */
+  app.get('/api/v1/notifications', async (req) => {
+    const userId = await requireUserId(req);
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { NotificationRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+    const db = await getMongoDb();
+    const items = await new NotificationRepository(db).listForUser(userId, 30);
+    return { notifications: items, unread: items.filter((n) => !n.read).length };
+  });
+
+  /** @openapi POST /api/v1/notifications/:id/read — mark one read. */
+  app.post('/api/v1/notifications/:id/read', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { NotificationRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+    const db = await getMongoDb();
+    await new NotificationRepository(db).markRead(id, userId);
+    return { ok: true };
+  });
+
+  // ── Search ───────────────────────────────────────────
+  /** @openapi GET /api/v1/search — players, tournaments, clubs. */
+  app.get('/api/v1/search', async (req) => {
+    const q = req.query as { q?: string };
+    const term = (typeof q.q === 'string' ? q.q : '').trim().slice(0, 24);
+    if (term.length < 2) return { players: [], tournaments: [], clubs: [] };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+    const { COLLECTIONS } = await import('../database/mongodb/collections.js');
+    const { toDomainId } = await import('../database/mongodb/ids.js');
+    const db = await getMongoDb();
+    const users = await new UserRepository(db).search(term, 8);
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const tours = await db.collection(COLLECTIONS.tournaments)
+      .find({ title: { $regex: escaped, $options: 'i' } }).limit(8).toArray().catch(() => []);
+    const clubs = await db.collection(COLLECTIONS.clubs)
+      .find({ name: { $regex: escaped, $options: 'i' } }).limit(8).toArray().catch(() => []);
+    return {
+      players: users.map((u) => ({ username: u.username })),
+      tournaments: tours.map((t) => {
+        const row = t as unknown as Record<string, unknown>;
+        return { id: toDomainId(row['_id']), title: String(row['title'] ?? '') };
+      }),
+      clubs: clubs.map((c) => {
+        const row = c as unknown as Record<string, unknown>;
+        return { id: toDomainId(row['_id']), name: String(row['name'] ?? '') };
+      }),
+    };
+  });
+
+  /** @openapi GET /api/v1/announcements — active broadcasts. */
+  app.get('/api/v1/announcements', async (req) => {
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { AnnouncementRepository } = await import('../database/mongodb/repositories/ops.repository.js');
+    const db = await getMongoDb().catch(() => null);
+    if (db === null) return { announcements: [] };
+    const all = await new AnnouncementRepository(db).active();
+    // Premium-targeted items need an entitlement; guests get the rest.
+    const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
+    const sid = getSessionId({ cookies, headers: req.headers });
+    let premium = false;
+    if (sid !== null) {
+      const me = await (await getAuthService()).me(sid).catch(() => null);
+      if (me !== null) {
+        const { EntitlementRepository } = await import('../database/mongodb/repositories/premium.repository.js');
+        premium = (await new EntitlementRepository(db).list(me.id).catch(() => [])).length > 0;
+      }
+    }
+    return { announcements: all.filter((a) => a.audience !== 'premium' || premium) };
+  });
+
+  /** @openapi POST /api/v1/analytics/event — product telemetry (authed). */
+  app.post('/api/v1/analytics/event', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { name?: string; props?: Record<string, unknown> };
+    if (typeof body.name !== 'string') throw new ValidationError('Invalid event');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { trackEvent } = await import('../database/mongodb/repositories/ops.repository.js');
+    const db = await getMongoDb().catch(() => null);
+    if (db !== null) {
+      const props = body.props !== undefined && typeof body.props === 'object' ? body.props : {};
+      await trackEvent(db, userId, body.name, props);
+    }
+    return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/reports — file a moderation report. */
+  app.post('/api/v1/reports', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { targetType?: string; targetId?: string; reason?: string };
+    if (body.targetType !== 'user' && body.targetType !== 'game' && body.targetType !== 'club') {
+      throw new ValidationError('Invalid target type');
+    }
+    if (typeof body.targetId !== 'string' || typeof body.reason !== 'string') throw new ValidationError('Invalid report');
+    const { ReportRepository } = await import('../database/mongodb/repositories/social.repository.js');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const db = await getMongoDb();
+    try {
+      const doc = await new ReportRepository(db).submit(userId, body.targetType, body.targetId, body.reason);
+      return { ok: true, id: doc._id };
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Report failed');
+    }
+  });
+
+  /** @openapi POST /api/v1/presence/heartbeat — mark yourself online. */
+  app.post('/api/v1/presence/heartbeat', async (req) => {
+    const userId = await requireUserId(req);
+    const { heartbeat } = await import('../modules/friends/service.js');
+    await heartbeat(userId);
+    return { ok: true };
+  });
+
   // ── Profiles / leaderboard ─────────────────────────
   /** @openapi GET /api/v1/profiles/:username — public profile with ratings + recent games. */
   app.get('/api/v1/profiles/:username', async (req) => {
@@ -319,18 +912,54 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       const ratings = new RatingRepository(db);
       const modes = ['bullet', 'blitz', 'rapid', 'casual'] as const;
       const rows = await Promise.all(modes.map((m) => ratings.get(doc._id, m)));
-      const games = await new GameRepository(db).listByUser(doc._id, 10);
+      const games = await new GameRepository(db).listByUser(doc._id, 50);
+      // Privacy: hidden ratings unless the viewer is the owner.
+      let viewer: string | null = null;
+      try {
+        viewer = await requireUserId(req);
+      } catch {
+        viewer = null;
+      }
+      const { SettingsRepository } = await import('../database/mongodb/repositories/settings.repository.js');
+      const prefs = await new SettingsRepository(db).get(doc._id).catch(() => null);
+      const ratingsVisible = viewer === doc._id || prefs === null || prefs.showRating;
+      // Seat split + current form streak from finished games (newest first).
+      const finished = games.filter((game) => game.status === 'FINISHED' && game.result !== undefined);
+      const seatWins: [number, number] = [0, 0];
+      const seatGames: [number, number] = [0, 0];
+      const outcomes: boolean[] = [];
+      for (const game of finished) {
+        const seat = game.players.find((p) => p.userId === doc._id)?.seat;
+        if (seat !== 0 && seat !== 1) continue;
+        seatGames[seat]++;
+        const won = game.result?.winnerSeat === seat;
+        if (won) seatWins[seat]++;
+        outcomes.push(won);
+      }
+      let streak = 0;
+      let streakWon = false;
+      for (const won of outcomes) {
+        if (streak === 0) {
+          streakWon = won;
+          streak = 1;
+        } else if (won === streakWon) {
+          streak++;
+        } else {
+          break;
+        }
+      }
       return {
         username: doc.username,
         joinedAt: doc.createdAt,
-        ratings: modes.map((m, i) => ({
+        stats: { seatWins, seatGames, streak, streakWon },
+        ratings: ratingsVisible ? modes.map((m, i) => ({
           mode: m,
           rating: rows[i]?.rating ?? defaultRating().rating,
           peak: rows[i]?.peak ?? defaultRating().rating,
           games: rows[i]?.games ?? 0,
           wins: rows[i]?.wins ?? 0,
           losses: rows[i]?.losses ?? 0,
-        })),
+        })) : [],
         recentGames: games.map((game) => ({
           id: game.engineId ?? game._id,
           mode: game.mode,
@@ -344,6 +973,28 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       if (err instanceof ValidationError) throw err;
       // Offline dev: shape stays stable, values honestly empty.
       return { username, ratings: [], recentGames: [], degraded: true };
+    }
+  });
+
+  /** @openapi GET /api/v1/profiles/:username/ratings/:mode/history — rating over time. */
+  app.get('/api/v1/profiles/:username/ratings/:mode/history', async (req) => {
+    const { username, mode } = req.params as { username: string; mode: string };
+    if (!['bullet', 'blitz', 'rapid', 'casual'].includes(mode)) throw new ValidationError('Unknown mode');
+    try {
+      const { getMongoDb } = await import('../database/mongodb/client.js');
+      const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+      const { RatingRepository } = await import('../database/mongodb/repositories/rating.repository.js');
+      const db = await getMongoDb();
+      const user = await new UserRepository(db).findByUsername(username);
+      if (user === null) throw new ValidationError('Player not found');
+      const rows = await new RatingRepository(db).history(user._id, mode, 100);
+      return {
+        mode,
+        points: rows.reverse().map((r) => ({ before: r.before, after: r.after, at: r.createdAt })),
+      };
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      return { mode, points: [], degraded: true };
     }
   });
 
@@ -375,6 +1026,129 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     // RBAC note: admin-only fields (email, bans) never leave through this route.
   });
 
+  // ── Replays / review ───────────────────────────────
+  /** @openapi GET /api/v1/replays/:gameId — deterministic replay payload. */
+  app.get('/api/v1/replays/:gameId', async (req) => {
+    const { gameId } = req.params as { gameId: string };
+    // Prefer the live record (freshest, includes in-progress games).
+    try {
+      const g = gamesService.get(gameId);
+      return {
+        gameId,
+        status: g.status,
+        initialState: { size: g.state.size, wallsPerPlayer: g.state.wallsPerPlayer },
+        rulesVersion: g.state.rulesVersion,
+        actions: g.actions,
+        result: g.status === 'finished' ? { winnerSeat: g.winnerSeat, reason: g.finishReason ?? 'goal' } : null,
+      };
+    } catch {
+      // Fall through to the persisted replay.
+    }
+    try {
+      const { getMongoDb } = await import('../database/mongodb/client.js');
+      const { ReplayRepository } = await import('../database/mongodb/repositories/replay.repository.js');
+      const db = await getMongoDb();
+      const replay = await new ReplayRepository(db).findByGame(gameId);
+      if (replay === null) throw new ValidationError('Replay not found');
+      return {
+        gameId,
+        status: 'FINISHED',
+        initialState: replay.initialState,
+        rulesVersion: replay.rulesVersion,
+        actions: replay.actions,
+        result: replay.result ?? null,
+      };
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new ValidationError('Replay not found');
+    }
+  });
+
+  /** @openapi GET /api/v1/games/:id/review — deterministic engine review. */
+  app.get('/api/v1/games/:id/review', async (req) => {
+    const { id } = req.params as { id: string };
+    const { reviewGame } = await import('../../../engine/typescript/dist/review/index.js');
+    try {
+      const g = gamesService.get(id);
+      if (g.actions.length === 0) throw new ValidationError('No moves to review yet');
+      return reviewGame(
+        { size: g.state.size, wallsPerPlayer: g.state.wallsPerPlayer },
+        g.actions,
+      );
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+    }
+    try {
+      const { getMongoDb } = await import('../database/mongodb/client.js');
+      const { ReplayRepository } = await import('../database/mongodb/repositories/replay.repository.js');
+      const db = await getMongoDb();
+      const replay = await new ReplayRepository(db).findByGame(id);
+      if (replay === null || replay.actions.length === 0) throw new ValidationError('Nothing to review yet');
+      const initial = replay.initialState as { size?: number; wallsPerPlayer?: number };
+      return reviewGame(
+        { size: initial.size ?? 9, wallsPerPlayer: initial.wallsPerPlayer ?? 10 },
+        replay.actions as { type: 'move'; to: { r: number; c: number } }[] | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } }[],
+      );
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new ValidationError('Nothing to review yet');
+    }
+  });
+
+  // ── Puzzles ────────────────────────────────────────
+  /** @openapi GET /api/v1/puzzles/daily — today's wall puzzle (same for all). */
+  app.get('/api/v1/puzzles/daily', async (req) => {
+    const { getDailyPuzzle, publicView, userStreak } = await import('../modules/puzzles/service.js');
+    const { todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
+    const date = todayKey();
+    const puzzle = await getDailyPuzzle(date);
+    // Auth optional: guests get the puzzle, members also get streak state.
+    let streak = 0;
+    let solvedToday = false;
+    try {
+      const userId = await requireUserId(req);
+      const s = await userStreak(userId, date);
+      streak = s.streak;
+      solvedToday = s.solvedToday;
+    } catch {
+      // guest — puzzle stays fully playable
+    }
+    return { ...publicView(puzzle), streak, solvedToday };
+  });
+
+  /** @openapi GET /api/v1/puzzles/mine — blunders from your own games. */
+  app.get('/api/v1/puzzles/mine', async (req) => {
+    const userId = await requireUserId(req);
+    const { myMistakes } = await import('../modules/puzzles/service.js');
+    return { puzzles: await myMistakes(userId) };
+  });
+
+  /** @openapi POST /api/v1/puzzles/mine/attempt — answer a personal puzzle. */
+  app.post('/api/v1/puzzles/mine/attempt', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { gameId?: string; seq?: number; action?: unknown };
+    if (typeof body.gameId !== 'string' || typeof body.seq !== 'number') throw new ValidationError('Invalid attempt');
+    const { GameActionSchema } = await import('../common/validation/schemas.js');
+    const parsed = GameActionSchema.safeParse(body.action);
+    if (!parsed.success) throw new ValidationError('Invalid action');
+    const { attemptMine } = await import('../modules/puzzles/service.js');
+    try {
+      return await attemptMine(userId, body.gameId, body.seq, parsed.data);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Attempt failed');
+    }
+  });
+
+  /** @openapi POST /api/v1/puzzles/daily/attempt — submit a wall. */
+  app.post('/api/v1/puzzles/daily/attempt', async (req) => {
+    const userId = await requireUserId(req);
+    const { WallSchema } = await import('../common/validation/schemas.js');
+    const parsed = WallSchema.safeParse((req.body as Record<string, unknown>)?.['wall'] ?? req.body);
+    if (!parsed.success) throw new ValidationError('Invalid wall');
+    const { attemptDaily } = await import('../modules/puzzles/service.js');
+    return attemptDaily(userId, parsed.data);
+  });
+
   // ── AI (optional providers, graceful when unconfigured) ──
   /** @openapi GET /api/v1/ai/status — provider availability (no secrets). */
   app.get('/api/v1/ai/status', async () => ({
@@ -382,8 +1156,9 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     active: activeProvider(),
   }));
 
-  /** @openapi POST /api/v1/ai/coach — explain engine facts (503 when unconfigured). */
+  /** @openapi POST /api/v1/ai/coach — explain engine facts (live when configured). */
   app.post('/api/v1/ai/coach', async (req) => {
+    const userId = await requireUserId(req);
     const parsed = CoachRequestSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw new ValidationError('Invalid coach request');
     const provider = activeProvider();
@@ -393,12 +1168,11 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
         message: 'AI Coach is not configured on this deployment. Post-game engine analysis below is still available.',
       };
     }
-    // Provider call wiring lands with the first configured deployment;
-    // until then report honestly instead of fabricating an explanation.
-    return {
-      available: false as const,
-      provider: provider.id,
-      message: 'AI provider is configured but live coaching calls are not enabled in this build yet.',
-    };
+    const { coachExplanation } = await import('../modules/ai/complete.js');
+    const result = await coachExplanation(userId, provider.id, parsed.data);
+    if (!result.ok) {
+      return { available: false as const, provider: result.provider ?? provider.id, message: result.error ?? 'Coach unavailable' };
+    }
+    return { available: true as const, provider: result.provider, explanation: result.explanation };
   });
 }

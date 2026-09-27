@@ -1,58 +1,107 @@
 /**
- * Minimal design-system primitives (tokens in styles/tokens.css).
- * Keep variants centralized here — no ad-hoc button styles in pages.
+ * NEXUS design-system primitives — every visual variant lives here.
+ * Pages use these; no ad-hoc buttons/cards/inputs elsewhere.
+ * All color comes from theme.css variables (both themes supported).
  */
-import type { CSSProperties, ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
+import { divisionFor, GLYPH } from '../../lib/brand.js';
 
-export function Button({ children, onClick, variant = 'primary', disabled, type = 'button', style }: {
+/* ── Brand mark ─────────────────────────────────────────── */
+export function Logo({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox={GLYPH.viewBox} aria-hidden style={{ display: 'block', flexShrink: 0 }}>
+      {GLYPH.pawns.map((p, i) => (
+        <rect key={i} x={p.x} y={p.y} width={10} height={10} rx={2.5} fill={p.fill} />
+      ))}
+      {GLYPH.walls.map((w, i) => (
+        <rect key={`w${i}`} x={w.x} y={w.y} width={w.w} height={w.h} rx={2} fill="var(--wall)" />
+      ))}
+    </svg>
+  );
+}
+
+/* ── Buttons ────────────────────────────────────────────── */
+type ButtonVariant = 'primary' | 'ghost' | 'danger' | 'subtle';
+type ButtonSize = 'sm' | 'md' | 'lg';
+
+const BTN_BASE: CSSProperties = {
+  borderRadius: 'var(--radius-md)',
+  fontWeight: 700,
+  border: '1px solid var(--line)',
+  fontFamily: 'var(--font-display)',
+  letterSpacing: '.01em',
+  transition: 'transform var(--dur-fast) ease, box-shadow var(--dur-med) ease, background var(--dur-med) ease',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+};
+
+const BTN_SIZES: Record<ButtonSize, CSSProperties> = {
+  sm: { padding: '6px 12px', fontSize: 13 },
+  md: { padding: '10px 18px', fontSize: 15 },
+  lg: { padding: '14px 26px', fontSize: 17 },
+};
+
+const BTN_VARIANTS: Record<ButtonVariant, CSSProperties> = {
+  primary: { background: 'var(--primary)', borderColor: 'var(--primary)', color: 'var(--primary-ink)', boxShadow: '0 2px 10px rgba(26,86,219,.28)' },
+  ghost: { background: 'var(--surface)', color: 'var(--ink)' },
+  subtle: { background: 'var(--surface-2)', color: 'var(--ink)', borderColor: 'transparent' },
+  danger: { background: 'var(--bad)', borderColor: 'var(--bad)', color: '#fff' },
+};
+
+export function Button({ children, onClick, variant = 'primary', size = 'md', disabled, loading, type = 'button', title, style }: {
   children: ReactNode;
   onClick?: () => void;
-  variant?: 'primary' | 'ghost' | 'danger' | 'subtle';
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   disabled?: boolean;
+  loading?: boolean;
   type?: 'button' | 'submit';
+  title?: string;
   style?: CSSProperties;
 }) {
-  const base: CSSProperties = {
-    borderRadius: 10,
-    padding: '10px 18px',
-    fontWeight: 700,
-    fontSize: 15,
-    border: '1px solid var(--line)',
-    transition: 'transform .08s ease, box-shadow .15s ease, background .15s ease',
-    opacity: disabled ? 0.55 : 1,
-  };
-  const variants: Record<string, CSSProperties> = {
-    primary: { background: 'var(--primary)', borderColor: 'var(--primary)', color: '#fff', boxShadow: '0 2px 8px rgba(26,86,219,.25)' },
-    ghost: { background: '#fff', color: 'var(--ink)' },
-    subtle: { background: 'var(--bg)', color: 'var(--ink)' },
-    danger: { background: '#dc2626', borderColor: '#dc2626', color: '#fff' },
-  };
+  const off = disabled === true || loading === true;
   return (
     <button
       type={type}
-      disabled={disabled}
+      disabled={off}
+      title={title}
       onClick={onClick}
-      style={{ ...base, ...(variants[variant] ?? {}), ...style }}
+      style={{ ...BTN_BASE, ...BTN_SIZES[size], ...BTN_VARIANTS[variant], opacity: off ? 0.55 : 1, ...style }}
     >
+      {loading === true && <span aria-hidden style={{ animation: 'nexus-pulse 1s infinite' }}>●</span>}
       {children}
     </button>
   );
 }
 
+/* ── Surfaces ───────────────────────────────────────────── */
 export function Card({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
     <div style={{
-      background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 14,
-      padding: 18, boxShadow: '0 1px 3px rgba(16,20,24,.06)', ...style,
+      background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--radius-lg)',
+      padding: 'var(--space-4)', boxShadow: 'var(--shadow-card)', ...style,
     }}>
       {children}
     </div>
   );
 }
 
+export function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
+  return (
+    <div>
+      <div style={{ color: 'var(--muted)', fontSize: 'var(--text-tiny)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div>
+      <div className="font-display" style={{ fontSize: 'var(--text-h1)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      {sub !== undefined && <div style={{ color: 'var(--muted)', fontSize: 'var(--text-small)' }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* ── Forms ──────────────────────────────────────────────── */
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label style={{ display: 'block', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
+    <label style={{ display: 'block', marginBottom: 'var(--space-3)', fontSize: 'var(--text-small)', fontWeight: 600 }}>
       <span style={{ display: 'block', marginBottom: 6 }}>{label}</span>
       {children}
     </label>
@@ -64,24 +113,62 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       style={{
-        width: '100%', padding: '10px 12px', borderRadius: 10, fontSize: 15,
-        border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)', ...props.style,
+        width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-md)', fontSize: 'var(--text-body)',
+        border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink)', ...props.style,
       }}
     />
   );
 }
 
+/* ── Identity ───────────────────────────────────────────── */
+function sigilHue(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+  return h;
+}
+
+/** Generated geometric avatar — deterministic per name, no assets. */
+export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
+  const hue = sigilHue(name);
+  const initial = name.slice(0, 1).toUpperCase();
+  return (
+    <span aria-hidden style={{
+      width: size, height: size, borderRadius: '50%', flexShrink: 0,
+      background: `conic-gradient(from 40deg, hsl(${hue} 55% 45%), hsl(${(hue + 70) % 360} 60% 40%), hsl(${hue} 55% 45%))`,
+      color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      fontWeight: 800, fontSize: size * 0.45, fontFamily: 'var(--font-display)',
+      boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.25)',
+    }}>
+      {initial}
+    </span>
+  );
+}
+
+export function DivisionBadge({ rating }: { rating: number }) {
+  const d = divisionFor(rating);
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--text-tiny)', fontWeight: 700,
+      borderRadius: 'var(--radius-pill)', padding: '3px 10px',
+      background: 'var(--surface-2)', color: 'var(--ink)', border: '1px solid var(--line)',
+    }}>
+      <span aria-hidden style={{ width: 8, height: 8, borderRadius: '50%', background: d.color }} />
+      {d.name} · <span className="font-mono">{rating}</span>
+    </span>
+  );
+}
+
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'good' | 'bad' | 'warn' | 'info' }) {
   const tones: Record<string, CSSProperties> = {
-    neutral: { background: 'var(--bg)', color: 'var(--muted)' },
-    good: { background: '#e7f6ec', color: '#15803d' },
-    bad: { background: '#fdecec', color: '#b91c1c' },
-    warn: { background: '#fef6e7', color: '#b45309' },
-    info: { background: '#e8effd', color: '#1a56db' },
+    neutral: { background: 'var(--surface-2)', color: 'var(--muted)' },
+    good: { background: 'var(--good-soft)', color: 'var(--good)' },
+    bad: { background: 'var(--bad-soft)', color: 'var(--bad)' },
+    warn: { background: 'var(--warn-soft)', color: 'var(--warn)' },
+    info: { background: 'var(--primary-soft)', color: 'var(--primary)' },
   };
   return (
     <span style={{
-      display: 'inline-block', fontSize: 12, fontWeight: 700, borderRadius: 999,
+      display: 'inline-block', fontSize: 'var(--text-tiny)', fontWeight: 700, borderRadius: 'var(--radius-pill)',
       padding: '3px 10px', ...(tones[tone] ?? {}),
     }}>
       {children}
@@ -89,24 +176,44 @@ export function Badge({ children, tone = 'neutral' }: { children: ReactNode; ton
   );
 }
 
-export function Spinner() {
-  return <span role="status" aria-label="loading" style={{ color: 'var(--muted)' }}>Loading…</span>;
+/* ── Feedback ───────────────────────────────────────────── */
+export function Spinner({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <span role="status" style={{ color: 'var(--muted)', display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+      <span aria-hidden style={{ display: 'inline-flex', gap: 3 }}>
+        {[0, 1, 2].map((i) => (
+          <span key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--primary)', animation: `nexus-pulse 1s ${i * 0.18}s infinite` }} />
+        ))}
+      </span>
+      {label}
+    </span>
+  );
+}
+
+export function Skeleton({ width = '100%', height = 16 }: { width?: string | number; height?: string | number }) {
+  return (
+    <div aria-hidden style={{
+      width, height, borderRadius: 'var(--radius-sm)', background: 'var(--surface-2)',
+      animation: 'nexus-pulse 1.4s ease-in-out infinite',
+    }} />
+  );
 }
 
 export function ErrorBox({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div role="alert" style={{ background: '#fdecec', border: '1px solid #f3c2c2', borderRadius: 12, padding: 14 }}>
+    <div role="alert" style={{ background: 'var(--bad-soft)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: 'var(--space-4)' }}>
       <strong>Something went wrong.</strong>
-      <p style={{ margin: '6px 0 0', color: '#7f1d1d', fontSize: 14 }}>{message}</p>
-      {onRetry !== undefined && <div style={{ marginTop: 10 }}><Button variant="ghost" onClick={onRetry}>Retry</Button></div>}
+      <p style={{ margin: '6px 0 0', fontSize: 'var(--text-small)' }}>{message}</p>
+      {onRetry !== undefined && <div style={{ marginTop: 10 }}><Button variant="ghost" size="sm" onClick={onRetry}>Retry</Button></div>}
     </div>
   );
 }
 
 export function EmptyState({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
   return (
-    <div style={{ textAlign: 'center', padding: '32px 16px', color: 'var(--muted)' }}>
-      <h3 style={{ color: 'var(--ink)', margin: '0 0 6px' }}>{title}</h3>
+    <div style={{ textAlign: 'center', padding: 'var(--space-6) var(--space-4)', color: 'var(--muted)' }}>
+      <Logo size={40} />
+      <h3 className="font-display" style={{ color: 'var(--ink)', margin: '12px 0 6px' }}>{title}</h3>
       <p style={{ margin: '0 0 14px' }}>{body}</p>
       {action}
     </div>
@@ -114,25 +221,63 @@ export function EmptyState({ title, body, action }: { title: string; body: strin
 }
 
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const [closing, setClosing] = useState(false);
+  const close = (): void => {
+    setClosing(true);
+    setTimeout(onClose, 120);
+  };
   return (
     <div
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={onClose}
+      onClick={close}
+      onKeyDown={(e) => { if (e.key === 'Escape') close(); }}
       style={{
-        position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(16,20,24,.45)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
-        animation: 'nexus-fade .18s ease',
+        position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(8,10,16,.55)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-4)',
+        animation: closing ? undefined : 'nexus-fade var(--dur-med) ease', opacity: closing ? 0 : 1,
+        transition: 'opacity 120ms ease',
       }}
     >
       <div onClick={(e) => e.stopPropagation()} style={{
-        background: '#fff', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%',
-        boxShadow: '0 20px 60px rgba(16,20,24,.25)', animation: 'nexus-pop .18s ease',
+        background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--line)',
+        borderRadius: 'var(--radius-lg)', padding: 'var(--space-5)', maxWidth: 480, width: '100%',
+        boxShadow: 'var(--shadow-pop)', animation: 'nexus-pop var(--dur-med) ease', position: 'relative',
       }}>
-        <h2 style={{ margin: '0 0 12px' }}>{title}</h2>
+        <button
+          onClick={close}
+          aria-label="Close dialog"
+          style={{ position: 'absolute', top: 12, right: 12, background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius-pill)', width: 30, height: 30, color: 'var(--muted)' }}
+        >
+          ✕
+        </button>
+        <h2 className="font-display" style={{ margin: '0 0 12px', paddingRight: 32 }}>{title}</h2>
         {children}
       </div>
+    </div>
+  );
+}
+
+export function Tabs<T extends string>({ tabs, active, onChange }: { tabs: readonly T[]; active: T; onChange: (t: T) => void }) {
+  return (
+    <div role="tablist" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {tabs.map((t) => (
+        <button
+          key={t}
+          role="tab"
+          aria-selected={active === t}
+          onClick={() => onChange(t)}
+          style={{
+            borderRadius: 'var(--radius-pill)', padding: '7px 14px', fontWeight: 700, fontSize: 'var(--text-small)',
+            textTransform: 'capitalize', fontFamily: 'var(--font-display)',
+            border: active === t ? '2px solid var(--primary)' : '1px solid var(--line)',
+            background: active === t ? 'var(--primary-soft)' : 'var(--surface)', color: 'var(--ink)',
+          }}
+        >
+          {t}
+        </button>
+      ))}
     </div>
   );
 }

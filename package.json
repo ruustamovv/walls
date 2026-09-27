@@ -11,6 +11,7 @@
     "install:all": "pnpm install -r",
     "dev": "pnpm --parallel dev",
     "dev:frontend": "pnpm --filter ./frontend dev",
+    "dev:admin": "pnpm --filter ./admin dev",
     "dev:backend": "pnpm --filter ./backend dev",
     "dev:engine": "pnpm --filter ./engine/typescript dev",
     "db:setup": "pnpm --filter ./backend db:setup",
@@ -24,7 +25,7 @@
     "typecheck": "pnpm -r typecheck",
     "build": "pnpm -r build",
     "env:check": "node scripts/setup/env-check.mjs",
-    "owner:create": "node scripts/setup/owner-create.mjs",
+    "owner:create": "pnpm --filter ./backend owner:create",
     "simulate": "python -m engine.python.simulation.run --games 1000",
     "benchmark:engine": "pnpm --filter ./engine/typescript benchmark"
   },

@@ -33,7 +33,7 @@ export default function WatchPage() {
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
               {games.map((g) => (
                 <li key={g.id} style={{ display: 'flex', gap: 12, alignItems: 'center', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#dc2626', animation: 'nexus-pulse 1.4s infinite' }} aria-label="live" />
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--bad)', animation: 'nexus-pulse 1.4s infinite' }} aria-label="live" />
                   <Link to={`/game/${encodeURIComponent(g.id)}`} style={{ fontWeight: 700 }}>
                     {timeControlName(g.timeControl)} · {g.mode}
                   </Link>

@@ -1,0 +1,41 @@
+/**
+ * Admin console theme: dark ops room. Independent from the player app —
+ * dense, tabular, tabular-nums everywhere, no game theater here.
+ */
+:root {
+  --bg: #0b0e14;
+  --surface: #131826;
+  --surface-2: #1a2133;
+  --ink: #eef1f6;
+  --muted: #9aa4b5;
+  --line: #263049;
+  --primary: #38bdf8;
+  --primary-ink: #06121f;
+  --primary-soft: #0e2a3f;
+  --good: #34d399;
+  --good-soft: #0b2b22;
+  --bad: #f87171;
+  --bad-soft: #3a1414;
+  --warn: #fbbf24;
+  --warn-soft: #33230a;
+  --radius: 10px;
+  --font-ui: ui-sans-serif, system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--ink);
+}
+a { color: var(--primary); }
+button { cursor: pointer; font-family: inherit; }
+code { font-family: var(--font-mono); font-size: 12px; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; padding: 8px; border-bottom: 1px solid var(--line); }
+td { padding: 8px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+@keyframes ops-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }

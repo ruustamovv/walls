@@ -16,16 +16,31 @@ export function getRedis(): Redis {
   return redis;
 }
 
-export async function connectRedis(): Promise<boolean> {
+export async function connectRedis(timeoutMs = 2000): Promise<boolean> {
+  const r = getRedis();
+  if (r.status === 'ready') return true;
   try {
-    const r = getRedis();
-    if (r.status === 'ready') return true;
-    await r.ping();
-    if ((r.status as string) !== 'ready') await r.connect().catch(() => undefined);
-    await r.ping();
+    await Promise.race([
+      (async () => {
+        await r.ping();
+        if ((r.status as string) !== 'ready') await r.connect().catch(() => undefined);
+        await r.ping();
+      })(),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('redis connect timeout')), Math.max(100, timeoutMs));
+      }),
+    ]);
     return true;
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'Redis unavailable — degraded mode');
+    // Drop the half-open singleton so its retry storm can neither hang
+    // probes nor keep test runners alive; the next call starts fresh.
+    try {
+      r.disconnect();
+    } catch {
+      // ignore
+    }
+    redis = null;
     return false;
   }
 }

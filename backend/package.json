@@ -17,6 +17,7 @@
     "db:reset:dev": "tsx src/database/reset-dev.ts",
     "db:health": "tsx src/database/health-cli.ts",
     "verify:live": "npm run build && tsx src/database/live-verify.ts",
+    "owner:create": "tsx src/scripts/create-owner.ts",
     "env:check": "node ../../scripts/setup/env-check.mjs"
   },
   "dependencies": {
@@ -29,13 +30,16 @@
     "fastify": "^5.2.0",
     "ioredis": "^5.4.1",
     "mongodb": "^6.9.0",
+    "nodemailer": "^10.0.10",
     "pino": "^9.5.0",
     "socket.io": "^4.7.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",
+    "@types/nodemailer": "^8.0.2",
     "mongodb-memory-server": "^11.3.0",
+    "socket.io-client": "^4.8.4",
     "tsx": "^4.16.2",
     "typescript": "^5.6.3"
   }

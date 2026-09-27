@@ -12,6 +12,7 @@ import {
   validateMove,
 } from '../../../engine/typescript/index.js';
 import type { Action, GameState, Pos, Wall } from '../../../engine/typescript/core/types.js';
+import { playSound } from '../lib/sound.js';
 
 export interface LocalGameOptions {
   size: number;
@@ -27,6 +28,8 @@ export interface LocalGame extends LocalGameState {
   doMove: (to: Pos) => void;
   doWall: (wall: Wall) => void;
   restart: () => void;
+  /** Take back `plies` plies (rebuilds from the action log). */
+  undo: (plies: number) => void;
 }
 
 interface LocalGameState {
@@ -68,6 +71,8 @@ export function useLocalGame(opts: LocalGameOptions): LocalGame {
       const verdict = validateMove(prev, action);
       if (!verdict.ok) {
         setMessage(action.type === 'move' ? 'Illegal move.' : `Illegal wall (${verdict.reason ?? 'rejected'}).`);
+        // Side-effect inside the updater is StrictMode-unsafe; the illegal
+        // cue replays from the message effect below instead.
         return prev;
       }
       const mover = prev.turn;
@@ -87,8 +92,46 @@ export function useLocalGame(opts: LocalGameOptions): LocalGame {
     });
   }, [clockOn, incrementMs, finish]);
 
+  // Sound cues derived from rendered state (StrictMode-safe).
+  const lastSounded = useRef(-1);
+  useEffect(() => {
+    if (actions.length > 0 && actions.length !== lastSounded.current) {
+      lastSounded.current = actions.length;
+      const last = actions[actions.length - 1];
+      if (last !== undefined) playSound(last.type === 'move' ? 'move' : 'wall');
+    }
+  }, [actions]);
+  useEffect(() => {
+    if (message !== '') playSound('illegal');
+  }, [message]);
+  useEffect(() => {
+    if (winnerSeat === null) return;
+    if (mode === 'bot') playSound(winnerSeat === 0 ? 'win' : 'lose');
+    else playSound('win');
+  }, [winnerSeat, mode]);
+
   const doMove = useCallback((to: Pos) => apply({ type: 'move', to }), [apply]);
   const doWall = useCallback((wall: Wall) => apply({ type: 'wall', wall }), [apply]);
+
+  const undo = useCallback((plies: number) => {
+    if (actions.length === 0 || botThinking) return;
+    const kept = actions.slice(0, Math.max(0, actions.length - plies));
+    let s = createGame({ size, wallsPerPlayer });
+    for (const a of kept) {
+      try {
+        s = applyMove(s, a).state;
+      } catch {
+        return;
+      }
+    }
+    setState(s);
+    setActions(kept);
+    setMessage('');
+    setWinnerSeat(null);
+    setReason(null);
+    lastTick.current = Date.now();
+    lastSounded.current = kept.length;
+  }, [actions, botThinking, size, wallsPerPlayer]);
 
   const restart = useCallback(() => {
     setState(createGame({ size, wallsPerPlayer }));
@@ -156,6 +199,6 @@ export function useLocalGame(opts: LocalGameOptions): LocalGame {
 
   return useMemo(() => ({
     state, actions, clocks, clockOn, message, botThinking, winnerSeat, reason, startedAt,
-    doMove, doWall, restart,
-  }), [state, actions, clocks, clockOn, message, botThinking, winnerSeat, reason, startedAt, doMove, doWall, restart]);
+    doMove, doWall, restart, undo,
+  }), [state, actions, clocks, clockOn, message, botThinking, winnerSeat, reason, startedAt, doMove, doWall, restart, undo]);
 }

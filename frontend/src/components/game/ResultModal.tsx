@@ -15,28 +15,38 @@ export interface ResultModalProps {
   onReview?: () => void;
   onNewGame: () => void;
   onHome: () => void;
+  /** Multiplayer override: exact headline (e.g. "Bot 3 wins!"). */
+  title?: string;
+  /** Whether the local side won (for the VICTORY/DEFEAT stamp). */
+  won?: boolean;
+  /** Rating line, e.g. "blitz 1650 (+12)". */
+  ratingLine?: string | null;
 }
 
-export default function ResultModal({ winnerSeat, reason, perspective, moveCount, durationSec, onRematch, onReview, onNewGame, onHome }: ResultModalProps) {
-  const won = perspective !== null && winnerSeat === perspective;
+export default function ResultModal({ winnerSeat, reason, perspective, moveCount, durationSec, onRematch, onReview, onNewGame, onHome, title, won: wonProp, ratingLine }: ResultModalProps) {
+  const won = wonProp ?? (perspective !== null && winnerSeat === perspective);
   return (
     <div role="dialog" aria-modal="true" aria-label="game result" style={{
       position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(16,20,24,.45)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, animation: 'nexus-fade .2s ease',
     }}>
       <div style={{
-        background: '#fff', borderRadius: 18, padding: 28, maxWidth: 440, width: '100%',
-        textAlign: 'center', boxShadow: '0 20px 60px rgba(16,20,24,.25)', animation: 'nexus-pop .2s ease',
+        background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 18, padding: 28, maxWidth: 440, width: '100%',
+        textAlign: 'center', boxShadow: 'var(--shadow-pop)', animation: 'nexus-win .32s ease',
       }}>
-        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.08em', color: won ? '#15803d' : 'var(--muted)' }}>
+        <div aria-hidden style={{ fontSize: 44, animation: 'nexus-win .45s ease' }}>
+          {perspective === null ? '🏁' : won ? '🏆' : '🛡️'}
+        </div>
+        <div className="font-display" style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.14em', color: won ? 'var(--good)' : 'var(--muted)' }}>
           {perspective === null ? 'GAME OVER' : won ? 'VICTORY' : 'DEFEAT'}
         </div>
         <h2 style={{ margin: '6px 0 4px', fontSize: 28 }}>
-          {resultLabel(winnerSeat, reason, perspective)} {reasonLabel(reason)}
+          {title ?? <>{resultLabel(winnerSeat, reason, perspective)} {reasonLabel(reason)}</>}
         </h2>
         <p style={{ color: 'var(--muted)', margin: '0 0 16px', fontSize: 14 }}>
           {moveCount} moves
           {durationSec !== null && ` · ${Math.floor(durationSec / 60)}m ${Math.round(durationSec % 60)}s`}
+          {ratingLine !== null && ratingLine !== undefined && <><br />{ratingLine}</>}
         </p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
           {onRematch !== undefined && <Button onClick={onRematch}>Rematch</Button>}

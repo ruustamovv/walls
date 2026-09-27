@@ -1,0 +1,139 @@
+/**
+ * NEXUS theme system v2 — dual theme (light site + dark arena).
+ *
+ * The document root carries data-theme="site" (default) or "arena".
+ * Game routes set "arena"; everything else uses "site".
+ * Components must use these variables — no raw hex in tsx.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700;800&display=swap');
+
+:root,
+html[data-theme='site'] {
+  --bg: #f7f5f0;
+  --surface: #ffffff;
+  --surface-2: #f1eee6;
+  --ink: #101418;
+  --muted: #5b6470;
+  --faint: #8a93a0;
+  --line: #e7e4dc;
+  --primary: #1a56db;
+  --primary-ink: #ffffff;
+  --primary-soft: #e8effd;
+  --good: #15803d;
+  --good-soft: #e7f6ec;
+  --bad: #b91c1c;
+  --bad-soft: #fdecec;
+  --warn: #b45309;
+  --warn-soft: #fef6e7;
+  --player-a: #1a56db;
+  --player-b: #c2410c;
+  --wall: #3f4753;
+  --wall-ghost-ok: rgba(26, 86, 219, .45);
+  --wall-ghost-bad: rgba(185, 28, 28, .45);
+  --cell: #fdfcf9;
+  --cell-alt: #f4f1ea;
+  --board-shell: #e9e4d8;
+  --goal: rgba(26, 86, 219, .10);
+  --clock-active: #eef3fe;
+  --shadow-card: 0 1px 3px rgba(16, 20, 24, .06);
+  --shadow-pop: 0 20px 60px rgba(16, 20, 24, .25);
+
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-ui: ui-sans-serif, system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --text-hero: clamp(2.4rem, 5vw, 3.4rem);
+  --text-h1: 1.6rem;
+  --text-h2: 1.25rem;
+  --text-h3: 1.05rem;
+  --text-body: 1rem;
+  --text-small: .875rem;
+  --text-tiny: .75rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 28px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --dur-fast: 90ms;
+  --dur-med: 180ms;
+  --dur-slow: 320ms;
+}
+
+html[data-theme='arena'] {
+  --bg: #0b0e14;
+  --surface: #131826;
+  --surface-2: #1a2133;
+  --ink: #eef1f6;
+  --muted: #9aa4b5;
+  --faint: #5d6678;
+  --line: #263049;
+  --primary: #38bdf8;
+  --primary-ink: #06121f;
+  --primary-soft: #0e2a3f;
+  --good: #34d399;
+  --good-soft: #0b2b22;
+  --bad: #f87171;
+  --bad-soft: #3a1414;
+  --warn: #fbbf24;
+  --warn-soft: #33230a;
+  --player-a: #22d3ee;
+  --player-b: #f59e0b;
+  --wall: #7dd3fc;
+  --wall-ghost-ok: rgba(34, 211, 238, .5);
+  --wall-ghost-bad: rgba(248, 113, 113, .5);
+  --cell: #161d2e;
+  --cell-alt: #121829;
+  --board-shell: #080b12;
+  --goal: rgba(34, 211, 238, .12);
+  --clock-active: #0e2a3f;
+  --shadow-card: 0 2px 12px rgba(0, 0, 0, .45);
+  --shadow-pop: 0 24px 70px rgba(0, 0, 0, .6);
+}
+
+@keyframes nexus-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes nexus-pop { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes nexus-wall-in { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes nexus-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes nexus-win { 0% { transform: scale(.9); opacity: 0; } 60% { transform: scale(1.03); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+@keyframes nexus-hop { 0% { transform: translateY(0); } 35% { transform: translateY(-22%); } 100% { transform: translateY(0); } }
+
+/* Board themes (data-board on the board wrapper). Midnight = theme default. */
+[data-board='paper'] {
+  --cell: #fdfcf9;
+  --cell-alt: #efe9dc;
+  --board-shell: #e2d9c6;
+  --wall: #4a4033;
+}
+[data-board='ember'] {
+  --cell: #1c1310;
+  --cell-alt: #150f0d;
+  --board-shell: #0a0706;
+  --wall: #ff9a3c;
+  --wall-ghost-ok: rgba(255, 154, 60, .5);
+  --goal: rgba(255, 154, 60, .12);
+}
+@keyframes nexus-ring { 0% { transform: scale(.7); opacity: .9; } 100% { transform: scale(1.6); opacity: 0; } }
+@keyframes nexus-aura { 0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, .0); } 50% { box-shadow: 0 0 18px 2px rgba(34, 211, 238, .35); } }
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--ink);
+  transition: background var(--dur-med) ease, color var(--dur-med) ease;
+}
+a { color: inherit; }
+button { cursor: pointer; font-family: inherit; }
+.font-display { font-family: var(--font-display); }
+.font-mono { font-family: var(--font-mono); }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

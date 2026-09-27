@@ -14,10 +14,19 @@ import type { NotificationDoc, PuzzleDoc, TournamentDoc } from '../types.js';
 export class TournamentRepository {
   constructor(private readonly db: Db) {}
 
-  async create(input: { title: string; mode?: string; timeControl?: string; startAt?: Date; endAt?: Date }): Promise<TournamentDoc> {
+  async create(input: {
+    title: string; mode?: string; timeControl?: string; startAt?: Date; endAt?: Date;
+    format?: TournamentDoc['format']; rounds?: number; playersCap?: number; ownerId?: string;
+  }): Promise<TournamentDoc> {
+    const format = input.format ?? 'single-elim';
     const res = await this.db.collection(COLLECTIONS.tournaments).insertOne({
       title: input.title, status: 'DRAFT', mode: input.mode ?? 'ranked',
       timeControl: input.timeControl ?? '3+1',
+      format,
+      rounds: Math.min(Math.max(input.rounds ?? (format === 'swiss' ? 4 : 0), 0), 12),
+      playersCap: Math.min(Math.max(input.playersCap ?? 16, 2), 128),
+      ...(input.ownerId !== undefined ? { ownerId: input.ownerId } : {}),
+      champion: null,
       ...(input.startAt !== undefined ? { startAt: input.startAt } : {}),
       ...(input.endAt !== undefined ? { endAt: input.endAt } : {}),
       createdAt: new Date(),
@@ -43,12 +52,57 @@ export class TournamentRepository {
     return res.matchedCount === 1;
   }
 
+  async setChampion(id: string, champion: string | null): Promise<boolean> {
+    const oid = tryToObjectId(id);
+    if (oid === null) return false;
+    const res = await this.db.collection(COLLECTIONS.tournaments).updateOne(
+      { _id: oid }, { $set: { champion, status: 'FINISHED' } },
+    );
+    return res.matchedCount === 1;
+  }
+
+  async listRecent(limit = 20): Promise<TournamentDoc[]> {
+    const rows = await this.db.collection(COLLECTIONS.tournaments)
+      .find({}).sort({ createdAt: -1 }).limit(Math.min(Math.max(limit, 1), 100)).toArray();
+    return rows.map((r) => withDomainId<TournamentDoc>(r as Record<string, unknown>));
+  }
+
   async addPlayer(tournamentId: string, userId: string): Promise<void> {
     await this.db.collection(COLLECTIONS.tournament_players).updateOne(
       { tournamentId, userId },
       { $setOnInsert: { tournamentId, userId, joinedAt: new Date() } },
       { upsert: true },
     );
+  }
+
+  async listPlayers(tournamentId: string): Promise<{ userId: string; joinedAt: Date }[]> {
+    const rows = await this.db.collection(COLLECTIONS.tournament_players)
+      .find({ tournamentId }).sort({ joinedAt: 1 }).toArray();
+    return rows.map((r) => ({
+      userId: String((r as Record<string, unknown>)['userId']),
+      joinedAt: (r as Record<string, unknown>)['joinedAt'] as Date,
+    }));
+  }
+
+  async countPlayers(tournamentId: string): Promise<number> {
+    return this.db.collection(COLLECTIONS.tournament_players).countDocuments({ tournamentId });
+  }
+
+  async saveRound(tournamentId: string, round: number, matches: { a: string | null; b: string | null; winner: string | null; gameId?: string }[]): Promise<void> {
+    await this.db.collection(COLLECTIONS.tournament_rounds).updateOne(
+      { tournamentId, round },
+      { $set: { tournamentId, round, matches, updatedAt: new Date() }, $setOnInsert: { createdAt: new Date() } },
+      { upsert: true },
+    );
+  }
+
+  async listRounds(tournamentId: string): Promise<{ round: number; matches: { a: string | null; b: string | null; winner: string | null; gameId?: string }[] }[]> {
+    const rows = await this.db.collection(COLLECTIONS.tournament_rounds)
+      .find({ tournamentId }).sort({ round: 1 }).toArray();
+    return rows.map((r) => ({
+      round: Number((r as Record<string, unknown>)['round']),
+      matches: ((r as Record<string, unknown>)['matches'] ?? []) as { a: string | null; b: string | null; winner: string | null; gameId?: string }[],
+    }));
   }
 }
 
@@ -80,6 +134,36 @@ export class NotificationRepository {
 
 export class PuzzleRepository {
   constructor(private readonly db: Db) {}
+
+  async findByPuzzleId(puzzleId: string): Promise<PuzzleDoc | null> {
+    const raw = await this.db.collection(COLLECTIONS.puzzles).findOne({ puzzleId });
+    return raw === null ? null : (withDomainId<PuzzleDoc>(raw as Record<string, unknown>));
+  }
+
+  async upsertDaily(input: { puzzleId: string; date: string; prompt: string; position: unknown; solution: unknown; needGain: number }): Promise<PuzzleDoc> {
+    await this.db.collection(COLLECTIONS.puzzles).updateOne(
+      { puzzleId: input.puzzleId },
+      { $setOnInsert: { ...input, rating: 1200, createdAt: new Date() } },
+      { upsert: true },
+    );
+    const doc = await this.findByPuzzleId(input.puzzleId);
+    if (doc === null) throw new Error('daily puzzle upsert failed');
+    return doc;
+  }
+
+  /** Distinct dates (YYYY-MM-DD) the user solved, newest first. */
+  async solvedDates(userId: string, limit = 60): Promise<string[]> {
+    const rows = await this.db.collection(COLLECTIONS.puzzle_attempts)
+      .find({ userId, solved: true }).sort({ createdAt: -1 }).limit(limit * 3).toArray();
+    const seen = new Set<string>();
+    for (const r of rows) {
+      const created = (r as Record<string, unknown>)['createdAt'];
+      const d = created instanceof Date ? created.toISOString().slice(0, 10) : String(created ?? '').slice(0, 10);
+      seen.add(d);
+      if (seen.size >= limit) break;
+    }
+    return [...seen].sort().reverse();
+  }
 
   async create(input: { prompt: string; solution: unknown; rating?: number }): Promise<PuzzleDoc> {
     const res = await this.db.collection(COLLECTIONS.puzzles).insertOne({

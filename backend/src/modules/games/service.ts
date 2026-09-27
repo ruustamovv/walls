@@ -35,7 +35,7 @@ import { appConfig, getTimeControl } from '../../config/app.js';
 export type GameStatus = 'waiting' | 'active' | 'finished' | 'aborted';
 
 /** How a finished game ended. Null while the game is still live. */
-export type FinishReason = 'goal' | 'timeout' | 'resign' | null;
+export type FinishReason = 'goal' | 'timeout' | 'resign' | 'draw' | null;
 
 export interface ClockState {
   /** ms remaining per player, server-computed. */
@@ -58,6 +58,8 @@ export interface GameRecord {
   /** Winning seat once finished (timeout awards the side with time left). */
   winnerSeat: 0 | 1 | null;
   finishReason: FinishReason;
+  /** Seat that offered a draw and awaits an answer, if any. */
+  drawOfferBy: 0 | 1 | null;
   /** True once the finish side-effects (ratings/replay) have been settled. */
   settled: boolean;
   clock: ClockState;
@@ -122,6 +124,7 @@ export class GamesService {
       actions: [],
       winnerSeat: null,
       finishReason: null,
+      drawOfferBy: null,
       settled: false,
       clock: {
         remainingMs: [tc.baseSec * 1000, tc.baseSec * 1000],
@@ -226,6 +229,37 @@ export class GamesService {
     }
   }
 
+  /** Offer a draw; the opponent answers with respondDraw. Idempotent. */
+  offerDraw(gameId: string, userId: string): GameRecord {
+    const g = this.get(gameId);
+    if (g.status !== 'active') throw new ValidationError('Game is not active');
+    const seat = g.playerIds[0] === userId ? 0 : g.playerIds[1] === userId ? 1 : -1;
+    if (seat === -1) throw new ForbiddenError('You are not a player of this game');
+    this.tickClock(g, Date.now());
+    if ((g.status as GameStatus) === 'finished') return g;
+    g.drawOfferBy = seat as 0 | 1;
+    g.updatedAt = Date.now();
+    return g;
+  }
+
+  /** Answer a pending draw offer; acceptance ends the game as a draw. */
+  respondDraw(gameId: string, userId: string, accept: boolean): GameRecord {
+    const g = this.get(gameId);
+    if (g.drawOfferBy === null) throw new ValidationError('No draw offer pending');
+    const seat = g.playerIds[0] === userId ? 0 : g.playerIds[1] === userId ? 1 : -1;
+    if (seat === -1) throw new ForbiddenError('You are not a player of this game');
+    if (seat === g.drawOfferBy) throw new ValidationError('You cannot answer your own offer');
+    if (g.status !== 'active') throw new ValidationError('Game is not active');
+    if (accept) {
+      g.status = 'finished';
+      g.winnerSeat = null;
+      g.finishReason = 'draw';
+      g.updatedAt = Date.now();
+    }
+    g.drawOfferBy = null;
+    return g;
+  }
+
   /**
    * Public snapshot safe to broadcast. Includes seat user ids so clients can
    * derive their own seat (needed for turn gating + HUD labels). No emails,
@@ -242,9 +276,12 @@ export class GamesService {
     isOver: boolean;
     winnerSeat: 0 | 1 | null;
     finishReason: FinishReason;
+    drawOfferBy: 0 | 1 | null;
     moveCount: number;
     timeControlId: string;
     mode: string;
+    createdAt: number;
+    updatedAt: number;
   } {
     return {
       id: g.id,
@@ -257,9 +294,12 @@ export class GamesService {
       isOver: g.state.isOver || g.status === 'finished',
       winnerSeat: g.winnerSeat,
       finishReason: g.finishReason,
+      drawOfferBy: g.drawOfferBy,
       moveCount: g.actions.length,
       timeControlId: g.timeControlId,
       mode: g.mode,
+      createdAt: g.createdAt,
+      updatedAt: g.updatedAt,
     };
   }
 }

@@ -53,7 +53,6 @@ export interface ScoredAction {
  * walls that lengthen the opponent's shortest path most come first.
  */
 function rankWalls(state: GameState, player: PlayerIndex, walls: Wall[], rng: () => number, cap: number): Wall[] {
-  const other = (1 - player) as PlayerIndex;
   const scored = walls.map((wall) => {
     const next = applyMove(state, { type: 'wall', wall }).state;
     // Opponent-path gain minus own-path cost: efficient walls only.

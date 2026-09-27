@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { toErrorShape } from './common/errors/errors.js';
 import { logger } from './common/logging/logger.js';
 import { registerV1 } from './routes/v1.js';
+import { registerAdmin } from './routes/admin.js';
 import { checkMongoHealth } from './database/mongodb/health.js';
 import { checkRedisHealth } from './database/redis/health.js';
 
@@ -29,7 +30,11 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     genReqId: () => randomUUID(),
   });
 
-  const origins = (process.env['CORS_ORIGINS'] ?? process.env['FRONTEND_URL'] ?? 'http://localhost:5173')
+  // Player app + standalone admin console are different hosts (ports).
+  const origins = (process.env['CORS_ORIGINS'] ?? [
+    process.env['FRONTEND_URL'] ?? 'http://localhost:5173',
+    process.env['ADMIN_URL'] ?? 'http://localhost:5174',
+  ].join(','))
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
@@ -67,6 +72,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   app.get('/live', async () => ({ ok: true }));
 
   await registerV1(app);
+  await registerAdmin(app);
 
   return app;
 }

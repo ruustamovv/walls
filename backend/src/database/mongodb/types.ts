@@ -121,12 +121,19 @@ export interface ReplayDoc {
   createdAt: Date;
 }
 
+export type TournamentFormat = 'single-elim' | 'round-robin' | 'swiss';
+
 export interface TournamentDoc {
   _id: string;
   title: string;
   status: string;
   mode: string;
   timeControl: string;
+  format: TournamentFormat;
+  rounds: number;
+  playersCap: number;
+  ownerId?: string;
+  champion?: string | null;
   startAt?: Date;
   endAt?: Date;
   createdAt: Date;
@@ -149,4 +156,62 @@ export interface PuzzleDoc {
   solution: unknown;
   rating: number;
   createdAt: Date;
+}
+
+export type FriendRequestStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED';
+
+export interface FriendRequestDoc {
+  _id: string;
+  fromUserId: string;
+  toUserId: string;
+  status: FriendRequestStatus;
+  createdAt: Date;
+}
+
+export interface FriendDoc {
+  _id: string;
+  userId: string;
+  friendId: string;
+  createdAt: Date;
+}
+
+export interface BlockDoc {
+  _id: string;
+  userId: string;
+  blockedId: string;
+  createdAt: Date;
+}
+
+export interface AdminAuditDoc {
+  _id: string;
+  actorId: string;
+  action: string;
+  target?: string;
+  meta?: Record<string, unknown>;
+  createdAt: Date;
+}
+
+export interface FeatureFlagDoc {
+  _id: string;
+  key: string;
+  enabled: boolean;
+  updatedAt: Date;
+}
+
+export type ClubRole = 'OWNER' | 'ADMIN' | 'MEMBER';
+
+export interface ClubDoc {
+  _id: string;
+  name: string;
+  description: string;
+  ownerId: string;
+  createdAt: Date;
+}
+
+export interface ClubMemberDoc {
+  _id: string;
+  clubId: string;
+  userId: string;
+  role: ClubRole;
+  joinedAt: Date;
 }

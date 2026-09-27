@@ -62,6 +62,26 @@ export async function settleFinishedGame(g: GameRecord): Promise<void> {
       outcome: scoreB === 1 ? 'win' : scoreB === 0 ? 'loss' : 'draw', gameId: g.id,
     });
 
+    const { NotificationRepository } = await import('../../database/mongodb/repositories/extended.repositories.js');
+    const { SettingsRepository } = await import('../../database/mongodb/repositories/settings.repository.js');
+    const notifs = new NotificationRepository(db);
+    const settings = new SettingsRepository(db);
+    const outcomeOf = (seat: 0 | 1): string =>
+      g.winnerSeat === null ? 'drew the' : g.winnerSeat === seat ? 'won your' : 'lost your';
+    for (const [uid, seat] of [[aId, 0], [bId, 1]] as const) {
+      const prefs = await settings.get(uid).catch(() => null);
+      if (prefs !== null && !prefs.notifyResults) continue;
+      await notifs.create({
+        userId: uid, kind: 'result',
+        title: `You ${outcomeOf(seat)} ${g.timeControlId} game`,
+        body: g.id,
+      }).catch(() => undefined);
+    }
+
+    const { trackEvent } = await import('../../database/mongodb/repositories/ops.repository.js');
+    await trackEvent(db, aId, 'game_finish', { mode, winnerSeat: g.winnerSeat }).catch(() => undefined);
+    await trackEvent(db, bId, 'game_finish', { mode, winnerSeat: g.winnerSeat }).catch(() => undefined);
+
     const replays = new ReplayRepository(db);
     const existing = await replays.findByGame(g.id).catch(() => null);
     if (existing === null) {

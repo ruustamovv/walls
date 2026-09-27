@@ -4,12 +4,12 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { Badge, Card, EmptyState, ErrorBox, Spinner } from '../../components/ui/primitives.js';
+import { Avatar, Badge, Card, DivisionBadge, EmptyState, ErrorBox, Spinner, Tabs } from '../../components/ui/primitives.js';
 
-const MODES = ['bullet', 'blitz', 'rapid', 'casual'];
+const MODES = ['bullet', 'blitz', 'rapid', 'casual'] as const;
 
 export default function LeaderboardPage() {
-  const [mode, setMode] = useState('blitz');
+  const [mode, setMode] = useState<(typeof MODES)[number]>('blitz');
   const [entries, setEntries] = useState<{ rank: number; username: string; rating: number; games: number; wins: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,24 +35,10 @@ export default function LeaderboardPage() {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>Leaderboard</h1>
+        <h1 className="font-display" style={{ margin: 0 }}>Leaderboard</h1>
         {degraded && <Badge tone="warn">database offline — showing cached shape</Badge>}
       </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {MODES.map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            style={{
-              borderRadius: 999, padding: '7px 14px', fontWeight: 700, fontSize: 14, textTransform: 'capitalize',
-              border: mode === m ? '2px solid var(--primary)' : '1px solid var(--line)',
-              background: mode === m ? '#e8effd' : '#fff', color: 'var(--ink)',
-            }}
-          >
-            {m}
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={MODES} active={mode} onChange={setMode} />
       <Card>
         {loading ? <Spinner />
           : error !== null ? <ErrorBox message={error} onRetry={() => setMode((m) => m)} />
@@ -71,9 +57,14 @@ export default function LeaderboardPage() {
               <tbody>
                 {entries.map((e) => (
                   <tr key={`${e.rank}-${e.username}`} style={{ borderTop: '1px solid var(--line)' }}>
-                    <td style={{ padding: '8px 4px', color: 'var(--muted)' }}>{e.rank}</td>
-                    <td><Link to={`/profile/${encodeURIComponent(e.username)}`} style={{ fontWeight: 700 }}>{e.username}</Link></td>
-                    <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{e.rating}</td>
+                    <td style={{ padding: '8px 4px', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{e.rank}</td>
+                    <td>
+                      <Link to={`/profile/${encodeURIComponent(e.username)}`} style={{ fontWeight: 700, display: 'inline-flex', gap: 8, alignItems: 'center', textDecoration: 'none' }}>
+                        <Avatar name={e.username} size={26} />{e.username}
+                      </Link>
+                      <div style={{ marginTop: 4 }}><DivisionBadge rating={e.rating} /></div>
+                    </td>
+                    <td className="font-mono" style={{ fontWeight: 700 }}>{e.rating}</td>
                     <td style={{ fontVariantNumeric: 'tabular-nums' }}>{e.games}</td>
                     <td style={{ fontVariantNumeric: 'tabular-nums' }}>{e.games > 0 ? Math.round((e.wins / e.games) * 100) : 0}%</td>
                   </tr>

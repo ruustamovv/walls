@@ -16,6 +16,8 @@ export interface UserStore {
   create(input: { email: string; username: string; passwordHash: string }): Promise<UserRecord>;
   findByLogin(login: string): Promise<UserRecord | null>;
   findById(id: string): Promise<UserRecord | null>;
+  /** Find by verified email, else create (OAuth linking). */
+  findOrCreate(input: { email: string; username: string; passwordHash: string }): Promise<UserRecord>;
 }
 
 function toRecord(doc: UserDoc): UserRecord {
@@ -59,6 +61,24 @@ export class MemoryUserStore implements UserStore {
   async findById(id: string): Promise<UserRecord | null> {
     return this.byId.get(id) ?? null;
   }
+
+  async findOrCreate(input: { email: string; username: string; passwordHash: string }): Promise<UserRecord> {
+    const existing = await this.findByLogin(input.email.trim().toLowerCase());
+    if (existing !== null) return existing;
+    // Unique-ify the username against collisions.
+    let candidate = input.username.trim();
+    let n = 0;
+    for (;;) {
+      try {
+        return await this.create({ ...input, username: candidate });
+      } catch (err) {
+        if (!(err instanceof ConflictError) || !String((err as Error).message).includes('Username')) throw err;
+        n++;
+        if (n > 99) throw err;
+        candidate = `${input.username.trim().slice(0, 18)}_${n}`;
+      }
+    }
+  }
 }
 
 export class MongoUserStore implements UserStore {
@@ -97,6 +117,21 @@ export class MongoUserStore implements UserStore {
     if (!/^[0-9a-fA-F]{24}$/.test(id)) return null;
     const doc = await this.repo.findById(id).catch(() => null);
     return doc === null ? null : toRecord(doc);
+  }
+
+  async findOrCreate(input: { email: string; username: string; passwordHash: string }): Promise<UserRecord> {
+    const existing = await this.findByLogin(input.email.trim().toLowerCase());
+    if (existing !== null) return existing;
+    let candidate = input.username.trim();
+    for (let n = 0; n < 100; n++) {
+      try {
+        return await this.create({ ...input, username: candidate });
+      } catch (err) {
+        if (!(err instanceof ConflictError) || !String((err as Error).message).includes('Username')) throw err;
+        candidate = `${input.username.trim().slice(0, 18)}_${n + 1}`;
+      }
+    }
+    throw new ConflictError('Username taken');
   }
 }
 
