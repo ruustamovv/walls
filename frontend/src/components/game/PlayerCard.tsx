@@ -2,6 +2,7 @@
  * Player HUD card: avatar initial, name, rating, server-synced clock,
  * wall inventory, turn + connection status.
  */
+import { memo } from 'react';
 import { formatClock } from '../../lib/format.js';
 import { Avatar, DivisionBadge } from '../ui/primitives.js';
 
@@ -19,7 +20,7 @@ export interface PlayerCardProps {
   accent: 0 | 1;
 }
 
-export default function PlayerCard({ name, rating, clockMs, clockActive, lowTime, wallsLeft, wallsTotal, isTurn, isYou, connected = true, accent }: PlayerCardProps) {
+export default memo(function PlayerCard({ name, rating, clockMs, clockActive, lowTime, wallsLeft, wallsTotal, isTurn, isYou, connected = true, accent }: PlayerCardProps) {
   const color = accent === 0 ? 'var(--player-a)' : 'var(--player-b)';
   return (
     <div style={{
@@ -72,4 +73,4 @@ export default function PlayerCard({ name, rating, clockMs, clockActive, lowTime
       </div>
     </div>
   );
-}
+})

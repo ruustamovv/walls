@@ -21,6 +21,8 @@ export interface ChatMessage {
 
 export interface OnlineGame {
   snapshot: GameSnapshot | null;
+  /** Locally interpolated clocks (server resyncs authoritatively). */
+  clocks: [number, number];
   /** Action log rebuilt from authoritative snapshots (for the timeline). */
   actions: Action[];
   chat: ChatMessage[];
@@ -45,10 +47,22 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  // Interpolated display clocks: anchored to the last authoritative
+  // snapshot, ticked locally each rendered second. Server resyncs win.
+  const [clocks, setClocks] = useState<[number, number]>([0, 0]);
+  const anchorRef = useRef<{ at: number; clockMs: [number, number]; turn: number; incrementMs: number; live: boolean } | null>(null);
 
   const ingest = useCallback((snap: GameSnapshot) => {
     setSnapshot(snap);
     setError(null);
+    anchorRef.current = {
+      at: Date.now(),
+      clockMs: [...snap.clockMs] as [number, number],
+      turn: snap.turn,
+      incrementMs: snap.incrementMs,
+      live: !(snap.isOver || snap.status === 'finished') && snap.status === 'active',
+    };
+    setClocks([...snap.clockMs] as [number, number]);
     // Rebuild the timeline from authoritative snapshots: the server only
     // sends full state, so track lastAction by moveNumber.
     setActions((prev) => {
@@ -113,11 +127,39 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
   }, [gameId, userId, refresh]);
 
   // Clock sync poll: server ticks authoritatively on every read.
+  // Skipped while the tab is hidden (resync on visibility return instead).
   useEffect(() => {
     if (snapshot !== null && (snapshot.isOver || snapshot.status === 'finished')) return;
-    const id = setInterval(refresh, 2000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, 2000);
+    const onVisible = (): void => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [refresh, snapshot]);
+
+  // Local interpolation between authoritative snapshots (second-granular).
+  useEffect(() => {
+    const id = setInterval(() => {
+      const a = anchorRef.current;
+      if (a === null || !a.live || document.hidden) return;
+      const elapsed = Date.now() - a.at;
+      setClocks((c) => {
+        const next = [...c] as [number, number];
+        next[a.turn as 0 | 1] = Math.max(0, a.clockMs[a.turn as 0 | 1] - elapsed);
+        const shown: [number, number] = [Math.ceil(next[0] / 1000), Math.ceil(next[1] / 1000)];
+        const prev: [number, number] = [Math.ceil(c[0] / 1000), Math.ceil(c[1] / 1000)];
+        if (shown[0] === prev[0] && shown[1] === prev[1]) return c;
+        return next;
+      });
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
 
   const sendMove = useCallback((to: Pos) => {
     socketRef.current?.emit('game:move', { gameId, action: { type: 'move', to } });
@@ -150,5 +192,5 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
     return null;
   })();
 
-  return { snapshot, actions, chat, meta, mySeat, connected, error, sendMove, sendWall, sendResign, sendChat, sendDrawOffer, sendDrawResponse, refresh };
+  return { snapshot, clocks, actions, chat, meta, mySeat, connected, error, sendMove, sendWall, sendResign, sendChat, sendDrawOffer, sendDrawResponse, refresh };
 }

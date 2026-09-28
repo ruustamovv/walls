@@ -193,6 +193,64 @@ export const api = {
     messages: { _id: string; userId: string; body: string; createdAt: string }[];
   }>(`/api/v1/clubs/${encodeURIComponent(id)}/chat`),
 
+  rushNext: (i: number) => req<{
+    seed: string;
+    puzzleId: string;
+    date: string;
+    prompt: string;
+    size: number;
+    turn: 0 | 1;
+    pawns: [{ r: number; c: number }, { r: number; c: number }];
+    walls: { r: number; c: number; orientation: 'h' | 'v' }[];
+    wallsRemaining: [number, number];
+    needGain: number;
+  }>(`/api/v1/puzzles/rush/next?i=${i}`),
+  rushAttempt: (seed: string, wall: { r: number; c: number; orientation: 'h' | 'v' }) => req<{
+    solved: boolean; gain: number; need: number; legal: boolean;
+  }>(
+    '/api/v1/puzzles/rush/attempt',
+    { method: 'POST', body: JSON.stringify({ seed, wall }) },
+  ),
+  rushStats: () => req<{
+    mine: number;
+    today: number;
+    leaders: { rank: number; username: string; solves: number }[];
+  }>('/api/v1/puzzles/rush/stats'),
+  learnCurriculum: () => req<{
+    lessons: {
+      id: string;
+      title: string;
+      description: string;
+      steps: {
+        id: string;
+        title: string;
+        explain: string;
+        size: number;
+        wallsPerPlayer: number;
+        turn: 0 | 1;
+        pawns: [{ r: number; c: number }, { r: number; c: number }];
+        walls: { r: number; c: number; orientation: 'h' | 'v' }[];
+        wallsRemaining: [number, number];
+        task: string;
+        needGain: number | null;
+        solved: boolean;
+      }[];
+    }[];
+  }>('/api/v1/learn/curriculum'),
+  learnAttempt: (
+    lessonId: string,
+    stepId: string,
+    action: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } },
+  ) => req<{ solved: boolean; detail: string; best?: string }>(
+    '/api/v1/learn/attempt',
+    { method: 'POST', body: JSON.stringify({ lessonId, stepId, action }) },
+  ),
+  learnOpenings: () => req<{
+    generatedAt: string;
+    board: string;
+    games: number;
+    openings: { line: string; games: number; whiteWinPct: number }[];
+  }>('/api/v1/learn/openings'),
   trainingMine: () => req<{
     puzzles: {
       puzzleId: string;
@@ -342,12 +400,16 @@ export const api = {
       by: 0 | 1;
       action: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } };
       labels: string[];
+      class: string;
       ownBefore: number;
       ownAfter: number;
       oppBefore: number;
       oppAfter: number;
       best: string;
     }[];
+    evalCurve: number[];
+    size: number;
+    wallsPerPlayer: number;
     summary: {
       greatWalls: [number, number];
       wallBlunders: [number, number];
@@ -355,6 +417,10 @@ export const api = {
       tempoLosses: [number, number];
       missedChokes: [number, number];
       score: [number, number];
+      accuracy: [number, number];
     };
   }>(`/api/v1/games/${encodeURIComponent(gameId)}/review`),
+  coachSummary: (gameId: string) => req<{ available: boolean; provider?: string; explanation?: string; message?: string }>(
+    `/api/v1/ai/coach-summary/${encodeURIComponent(gameId)}`,
+  ),
 };

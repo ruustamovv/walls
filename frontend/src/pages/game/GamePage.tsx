@@ -2,7 +2,7 @@
  * Online game screen: server-authoritative 1v1 (+ spectators).
  * HUD names come from /meta; clocks tick from server snapshots.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { TextInput } from '../../components/ui/primitives.js';
 import { playSound } from '../../lib/sound.js';
@@ -72,14 +72,14 @@ export default function GamePage() {
   const lastTickSec = useRef<[number, number]>([-1, -1]);
   useEffect(() => {
     if (game.snapshot === null || game.snapshot.isOver) return;
-    const secs = [Math.ceil(game.snapshot.clockMs[0] / 1000), Math.ceil(game.snapshot.clockMs[1] / 1000)] as [number, number];
+    const secs = [Math.ceil(game.clocks[0] / 1000), Math.ceil(game.clocks[1] / 1000)] as [number, number];
     ([0, 1] as const).forEach((s) => {
       if (secs[s] <= 10 && secs[s] > 0 && secs[s] !== lastTickSec.current[s]) {
         lastTickSec.current[s] = secs[s];
         playSound('tick');
       }
     });
-  }, [game.snapshot]);
+  }, [game.clocks, game.snapshot]);
   const soundedChat = useRef(0);
   useEffect(() => {
     if (game.chat.length > soundedChat.current) {
@@ -117,8 +117,16 @@ export default function GamePage() {
     rulesVersion: snap.state.rulesVersion,
   };
   const done = snap.isOver || snap.status === 'finished';
-  const myPath = findShortestPath(state, (mySeat ?? 0) as 0 | 1).length;
-  const oppPath = findShortestPath(state, (((mySeat ?? 0) + 1) % 2) as 0 | 1).length;
+  const mySeatStable = mySeat ?? 0;
+  const myPath = useMemo(
+    () => findShortestPath(state, mySeatStable as 0 | 1).length,
+    [state, mySeatStable],
+  );
+  const oppPath = useMemo(
+    () => findShortestPath(state, ((mySeatStable + 1) % 2) as 0 | 1).length,
+    [state, mySeatStable],
+  );
+  const humanSeats = useMemo(() => (mySeat === null ? [] : [mySeat]), [mySeat]);
   const nameOf = (seat: 0 | 1): string =>
     game.meta?.[seat]?.username ?? (snap.seats[seat] !== null ? `Player ${seat + 1}` : 'Waiting…');
   const ratingOf = (seat: 0 | 1): number | null => game.meta?.[seat]?.rating ?? null;
@@ -153,9 +161,9 @@ export default function GamePage() {
             <PlayerCard
               name={nameOf(1)}
               rating={ratingOf(1)}
-              clockMs={snap.clockMs[1]}
+              clockMs={game.clocks[1]}
               clockActive={!done && snap.turn === 1}
-              lowTime={snap.clockMs[1] < 30000}
+              lowTime={game.clocks[1] < 30000}
               wallsLeft={snap.state.wallsRemaining[1]}
               wallsTotal={state.wallsPerPlayer}
               isTurn={!done && snap.turn === 1}
@@ -167,7 +175,7 @@ export default function GamePage() {
           <div style={flipped ? { transform: 'rotate(180deg)' } : undefined}>
             <GameBoard
               state={state}
-              humanSeats={mySeat === null ? [] : [mySeat]}
+              humanSeats={humanSeats}
               interactive={!spectating && game.connected}
               onMove={game.sendMove}
               onWall={game.sendWall}
@@ -188,9 +196,9 @@ export default function GamePage() {
             <PlayerCard
               name={nameOf(0)}
               rating={ratingOf(0)}
-              clockMs={snap.clockMs[0]}
+              clockMs={game.clocks[0]}
               clockActive={!done && snap.turn === 0}
-              lowTime={snap.clockMs[0] < 30000}
+              lowTime={game.clocks[0] < 30000}
               wallsLeft={snap.state.wallsRemaining[0]}
               wallsTotal={state.wallsPerPlayer}
               isTurn={!done && snap.turn === 0}

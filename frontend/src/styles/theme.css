@@ -27,6 +27,8 @@ html[data-theme='site'] {
   --warn-soft: #fef6e7;
   --player-a: #1a56db;
   --player-b: #c2410c;
+  --player-c: #0e9f6e;
+  --player-d: #7c3aed;
   --wall: #3f4753;
   --wall-ghost-ok: rgba(26, 86, 219, .45);
   --wall-ghost-bad: rgba(185, 28, 28, .45);
@@ -86,6 +88,8 @@ html[data-theme='arena'] {
   --warn-soft: #33230a;
   --player-a: #22d3ee;
   --player-b: #f59e0b;
+  --player-c: #34d399;
+  --player-d: #a78bfa;
   --wall: #7dd3fc;
   --wall-ghost-ok: rgba(34, 211, 238, .5);
   --wall-ghost-bad: rgba(248, 113, 113, .5);

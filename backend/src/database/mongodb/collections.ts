@@ -9,6 +9,8 @@ export const COLLECTIONS = {
   password_resets: 'password_resets',
   user_settings: 'user_settings',
   ai_quotas: 'ai_quotas',
+  rush_solves: 'rush_solves',
+  lesson_progress: 'lesson_progress',
   games: 'games',
   game_moves: 'game_moves',
   game_events: 'game_events',

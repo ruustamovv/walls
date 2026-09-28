@@ -8,4 +8,4 @@ export {
   type AIProviderStatus,
   type CoachRequest,
 } from './provider.js';
-export { coachExplanation, type CoachResult } from './complete.js';
+export { coachExplanation, coachGameSummary, type CoachResult, type GameSummaryFacts } from './complete.js';

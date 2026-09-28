@@ -2,12 +2,12 @@
  * Move timeline: algebraic notation, click-to-seek, auto-scroll, copy/export.
  * `ply` = how many plies are currently shown (parents drive replay scrub).
  */
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { actionName, lineNotation } from '../../lib/coords.js';
 
 type Action = { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } };
 
-export default function MoveList({ actions, size, ply, onSeek, onExport }: {
+export default memo(function MoveList({ actions, size, ply, onSeek, onExport }: {
   actions: Action[];
   size: number;
   ply?: number;
@@ -83,7 +83,7 @@ export default function MoveList({ actions, size, ply, onSeek, onExport }: {
       </ol>
     </div>
   );
-}
+})
 
 const miniBtn: React.CSSProperties = {
   background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 6,

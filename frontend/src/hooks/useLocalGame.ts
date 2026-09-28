@@ -22,6 +22,8 @@ export interface LocalGameOptions {
   /** Starting clock per side in ms (0 = untimed). */
   clockMs?: number;
   incrementMs?: number;
+  /** Start from a designed position instead of the opening. */
+  from?: { state: GameState; actions: Action[] };
 }
 
 export interface LocalGame extends LocalGameState {
@@ -45,9 +47,9 @@ interface LocalGameState {
 }
 
 export function useLocalGame(opts: LocalGameOptions): LocalGame {
-  const { size, wallsPerPlayer, mode, botId, clockMs = 0, incrementMs = 0 } = opts;
-  const [state, setState] = useState<GameState>(() => createGame({ size, wallsPerPlayer }));
-  const [actions, setActions] = useState<Action[]>([]);
+  const { size, wallsPerPlayer, mode, botId, clockMs = 0, incrementMs = 0, from } = opts;
+  const [state, setState] = useState<GameState>(() => from !== undefined ? { ...from.state } : createGame({ size, wallsPerPlayer }));
+  const [actions, setActions] = useState<Action[]>(() => (from !== undefined ? [...from.actions] : []));
   const [clocks, setClocks] = useState<[number, number]>([clockMs, clockMs]);
   const [message, setMessage] = useState('');
   const [botThinking, setBotThinking] = useState(false);
@@ -157,15 +159,24 @@ export function useLocalGame(opts: LocalGameOptions): LocalGame {
   }, [configKey, restart]);
 
   // Client clock tick (decrement only; timeout is derived below).
+  // Second-granular: re-renders at most once per displayed second, and
+  // pauses while the tab is hidden (no fake time loss on return).
+  const lastShownSec = useRef<[number, number]>([-1, -1]);
   useEffect(() => {
     if (!clockOn || over) return;
     const id = setInterval(() => {
       const now = Date.now();
       const elapsed = now - lastTick.current;
       lastTick.current = now;
+      if (document.hidden) return;
       setClocks((c) => {
         const next = [...c] as [number, number];
         next[state.turn] = Math.max(0, next[state.turn] - elapsed);
+        const shown: [number, number] = [Math.ceil(next[0] / 1000), Math.ceil(next[1] / 1000)];
+        if (shown[0] === lastShownSec.current[0] && shown[1] === lastShownSec.current[1] && next[state.turn] > 0) {
+          return c; // same rendered second — skip the render entirely
+        }
+        lastShownSec.current = shown;
         return next;
       });
     }, 250);

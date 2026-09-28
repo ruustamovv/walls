@@ -11,6 +11,17 @@
     <title>NEXUS — Move or Build a Wall</title>
   </head>
   <body>
+    <script>
+      // Pre-paint theme: applied before React boots to avoid a theme flash.
+      // Reads the persisted nexus-settings (zustand) without dependencies.
+      try {
+        var raw = localStorage.getItem('nexus-settings');
+        var choice = raw ? JSON.parse(raw).state.theme : 'auto';
+        var path = window.location.pathname;
+        var arena = /^\/(game|replay|play\/(local|bot|multi))/.test(path);
+        document.documentElement.dataset.theme = choice === 'auto' ? (arena ? 'arena' : 'site') : choice;
+      } catch (e) { /* default theme stands */ }
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

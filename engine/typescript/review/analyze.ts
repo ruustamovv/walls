@@ -7,7 +7,7 @@
  * an LLM may later *explain* them, but never *decide* them.
  */
 import { applyMove, createGame, getLegalMoves } from '../rules/game.js';
-import { findShortestPath } from '../pathfinding/bfs.js';
+import { findShortestPath, getPathMetrics } from '../pathfinding/bfs.js';
 import { chooseBotAction } from '../bots/search.js';
 import { BALANCED_WEIGHTS } from '../bots/evaluate.js';
 import type { Action, GameConfig, GameState, PlayerIndex } from '../core/types.js';
@@ -20,11 +20,23 @@ export type ReviewLabel =
   | 'MISSED_CHOKE'
   | 'CLUTCH';
 
+/** Overall move classification (chess.com-style, engine-measured). */
+export type MoveClass =
+  | 'BRILLIANT'
+  | 'BEST'
+  | 'EXCELLENT'
+  | 'GOOD'
+  | 'INACCURACY'
+  | 'MISTAKE'
+  | 'BLUNDER';
+
 export interface ReviewedMove {
   seq: number;
   by: PlayerIndex;
   action: Action;
   labels: ReviewLabel[];
+  /** Overall classification against the reference best. */
+  class: MoveClass;
   ownBefore: number;
   ownAfter: number;
   oppBefore: number;
@@ -35,6 +47,8 @@ export interface ReviewedMove {
 
 export interface GameReview {
   moves: ReviewedMove[];
+  /** Route-differential curve (P1 path − P0 path) after every ply. */
+  evalCurve: number[];
   summary: {
     greatWalls: [number, number];
     wallBlunders: [number, number];
@@ -43,11 +57,39 @@ export interface GameReview {
     missedChokes: [number, number];
     /** Heuristic 5–100 score per player (experimental, not a skill rating). */
     score: [number, number];
+    /** Accuracy 3–100 per player from move classifications. */
+    accuracy: [number, number];
+    classCounts: [{ [K in MoveClass]: number }, { [K in MoveClass]: number }];
   };
 }
 
 export function describeAction(a: Action): string {
   return a.type === 'move' ? `move ${a.to.r},${a.to.c}` : `wall ${a.wall.orientation} ${a.wall.r},${a.wall.c}`;
+}
+
+/** Parse a describeAction() string back into an action. */
+export function parseBestAction(best: string): Action | null {
+  const move = /^move (\d+),(\d+)$/.exec(best);
+  if (move !== null) return { type: 'move', to: { r: Number(move[1]), c: Number(move[2]) } };
+  const wall = /^wall ([hv]) (\d+),(\d+)$/.exec(best);
+  if (wall !== null) {
+    return { type: 'wall', wall: { orientation: wall[1] as 'h' | 'v', r: Number(wall[2]), c: Number(wall[3]) } };
+  }
+  return null;
+}
+
+const CLASS_SCORE: Record<MoveClass, number> = {
+  BRILLIANT: 2,
+  BEST: 2,
+  EXCELLENT: 1.5,
+  GOOD: 1,
+  INACCURACY: 0.5,
+  MISTAKE: -1,
+  BLUNDER: -2,
+};
+
+function emptyClassCounts(): { [K in MoveClass]: number } {
+  return { BRILLIANT: 0, BEST: 0, EXCELLENT: 0, GOOD: 0, INACCURACY: 0, MISTAKE: 0, BLUNDER: 0 };
 }
 
 function pathLen(state: GameState, player: PlayerIndex): number {
@@ -89,6 +131,11 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
   };
 
   const refBase = opts.seedBase ?? seedBase;
+  const evalCurve: number[] = [];
+  const classCounts = [emptyClassCounts(), emptyClassCounts()] as [
+    { [K in MoveClass]: number },
+    { [K in MoveClass]: number },
+  ];
   actions.forEach((action, seq) => {
     const mover = state.turn;
     const other = (1 - mover) as PlayerIndex;
@@ -121,13 +168,23 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
       const diff = ownAfter - bestOwnAfter;
       if (diff >= 2) labels.push('PATH_BLUNDER');
       else if (diff >= 1 && ownAfter >= ownBefore) labels.push('TEMPO_LOSS');
-      void best;
     }
 
     // Missed choke is independent of what was played.
     if (best.type === 'wall' && bestOppAfter - oppBefore >= 4 && oppAfter - oppBefore <= 1) {
       labels.push('MISSED_CHOKE');
     }
+
+    // Overall classification: total route-steps conceded vs the reference.
+    const totalDiff = (ownAfter - bestOwnAfter) + (bestOppAfter - oppAfter);
+    let cls: MoveClass;
+    if (labels.includes('CLUTCH') || labels.includes('GREAT_WALL')) cls = 'BRILLIANT';
+    else if (totalDiff <= 0) cls = 'BEST';
+    else if (totalDiff === 1) cls = 'EXCELLENT';
+    else if (totalDiff === 2) cls = 'GOOD';
+    else if (totalDiff <= 4) cls = 'INACCURACY';
+    else if (totalDiff <= 7) cls = 'MISTAKE';
+    else cls = 'BLUNDER';
 
     for (const l of labels) {
       if (l === 'GREAT_WALL') tally.greatWalls[mover]++;
@@ -136,12 +193,16 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
       else if (l === 'TEMPO_LOSS') tally.tempoLosses[mover]++;
       else if (l === 'MISSED_CHOKE') tally.missedChokes[mover]++;
     }
+    classCounts[mover][cls]++;
 
     moves.push({
-      seq, by: mover, action, labels,
+      seq, by: mover, action, labels, class: cls,
       ownBefore, ownAfter, oppBefore, oppAfter,
       best: describeAction(best),
     });
+    // Eval curve from player-0 perspective (P1 route − P0 route).
+    const m = getPathMetrics(played);
+    evalCurve.push(m.pathLengthB - m.pathLengthA);
     state = played;
   });
 
@@ -153,11 +214,22 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
     return Math.min(100, Math.max(5, Math.round(v)));
   };
 
+  const accuracy = (p: 0 | 1): number => {
+    const counts = classCounts[p];
+    const n = (Object.keys(counts) as MoveClass[]).reduce((s, k) => s + counts[k], 0);
+    if (n === 0) return 100;
+    const avg = (Object.keys(counts) as MoveClass[]).reduce((s, k) => s + counts[k] * CLASS_SCORE[k], 0) / n;
+    return Math.min(100, Math.max(3, Math.round(50 + 25 * avg)));
+  };
+
   return {
     moves,
+    evalCurve,
     summary: {
       ...tally,
       score: [score(0), score(1)],
+      accuracy: [accuracy(0), accuracy(1)],
+      classCounts,
     },
   };
 }

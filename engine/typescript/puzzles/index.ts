@@ -1,1 +1,1 @@
-export { dailyPuzzle, gradeAttempt, todayKey, type AttemptVerdict, type DailyPuzzle } from './daily.js';
+export { dailyPuzzle, gradeAttempt, seededPuzzle, todayKey, type AttemptVerdict, type DailyPuzzle } from './daily.js';

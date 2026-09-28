@@ -1071,10 +1071,14 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     try {
       const g = gamesService.get(id);
       if (g.actions.length === 0) throw new ValidationError('No moves to review yet');
-      return reviewGame(
-        { size: g.state.size, wallsPerPlayer: g.state.wallsPerPlayer },
-        g.actions,
-      );
+      return {
+        ...reviewGame(
+          { size: g.state.size, wallsPerPlayer: g.state.wallsPerPlayer },
+          g.actions,
+        ),
+        size: g.state.size,
+        wallsPerPlayer: g.state.wallsPerPlayer,
+      };
     } catch (err) {
       if (err instanceof ValidationError) throw err;
     }
@@ -1085,10 +1089,16 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       const replay = await new ReplayRepository(db).findByGame(id);
       if (replay === null || replay.actions.length === 0) throw new ValidationError('Nothing to review yet');
       const initial = replay.initialState as { size?: number; wallsPerPlayer?: number };
-      return reviewGame(
-        { size: initial.size ?? 9, wallsPerPlayer: initial.wallsPerPlayer ?? 10 },
-        replay.actions as { type: 'move'; to: { r: number; c: number } }[] | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } }[],
-      );
+      const size = initial.size ?? 9;
+      const wallsPerPlayer = initial.wallsPerPlayer ?? 10;
+      return {
+        ...reviewGame(
+          { size, wallsPerPlayer },
+          replay.actions as { type: 'move'; to: { r: number; c: number } }[] | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } }[],
+        ),
+        size,
+        wallsPerPlayer,
+      };
     } catch (err) {
       if (err instanceof ValidationError) throw err;
       throw new ValidationError('Nothing to review yet');
@@ -1139,6 +1149,152 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     }
   });
 
+  /** @openapi GET /api/v1/puzzles/rush/next — deterministic rush puzzle. */
+  app.get('/api/v1/puzzles/rush/next', async (req) => {
+    const q = req.query as { i?: string };
+    const index = Math.min(Math.max(Number(q.i ?? 0) || 0, 0), 500);
+    const { seededPuzzle, todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
+    const { publicView } = await import('../modules/puzzles/service.js');
+    const date = todayKey();
+    let lastErr: unknown = null;
+    for (let k = 0; k < 6; k++) {
+      const seed = `rush-${date}-${index}-${k}`;
+      try {
+        return { ...publicView(seededPuzzle(seed, seed, date)), seed };
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw new ValidationError(lastErr instanceof Error ? lastErr.message : 'No rush puzzle available');
+  });
+
+  /** @openapi POST /api/v1/puzzles/rush/attempt — solve a rush puzzle. */
+  app.post('/api/v1/puzzles/rush/attempt', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { seed?: string; wall?: unknown };
+    if (typeof body.seed !== 'string' || body.seed.length > 120) throw new ValidationError('Invalid rush seed');
+    const { WallSchema } = await import('../common/validation/schemas.js');
+    const parsed = WallSchema.safeParse(body.wall);
+    if (!parsed.success) throw new ValidationError('Invalid wall');
+    const { seededPuzzle, gradeAttempt, todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
+    const date = todayKey();
+    let puzzle;
+    try {
+      puzzle = seededPuzzle(body.seed, body.seed, date);
+    } catch {
+      throw new ValidationError('Unknown rush puzzle');
+    }
+    const verdict = gradeAttempt(puzzle, parsed.data);
+    if (verdict.solved) {
+      // Record solves only (failures are client-side strikes); unique per
+      // (seed, user) keeps farming the same puzzle pointless.
+      try {
+        const { getMongoDb } = await import('../database/mongodb/client.js');
+        const { COLLECTIONS } = await import('../database/mongodb/collections.js');
+        const db = await getMongoDb();
+        await db.collection(COLLECTIONS.rush_solves).updateOne(
+          { seed: body.seed, userId },
+          { $setOnInsert: { seed: body.seed, userId, gain: verdict.gain, date, createdAt: new Date() } },
+          { upsert: true },
+        );
+      } catch {
+        // solves are advisory for the run; the verdict stands
+      }
+    }
+    return { solved: verdict.solved, gain: verdict.gain, need: verdict.need, legal: verdict.legal };
+  });
+
+  /** @openapi GET /api/v1/puzzles/rush/stats — my solves + leaders. */
+  app.get('/api/v1/puzzles/rush/stats', async (req) => {
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { COLLECTIONS } = await import('../database/mongodb/collections.js');
+    const { todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
+    const db = await getMongoDb().catch(() => null);
+    if (db === null) return { mine: 0, today: 0, leaders: [] };
+    const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
+    const sid = getSessionId({ cookies, headers: req.headers });
+    let mine = 0;
+    let today = 0;
+    if (sid !== null) {
+      const me = await (await getAuthService()).me(sid).catch(() => null);
+      if (me !== null) {
+        mine = await db.collection(COLLECTIONS.rush_solves).countDocuments({ userId: me.id });
+        today = await db.collection(COLLECTIONS.rush_solves).countDocuments({ userId: me.id, date: todayKey() });
+      }
+    }
+    const top = (await db.collection(COLLECTIONS.rush_solves).aggregate([
+      { $group: { _id: '$userId', solves: { $sum: 1 } } },
+      { $sort: { solves: -1 } },
+      { $limit: 10 },
+    ]).toArray().catch(() => [])) as { _id: string; solves: number }[];
+    const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+    const users = new UserRepository(db);
+    const leaders = await Promise.all(top.map(async (t, i) => ({
+      rank: i + 1,
+      username: (await users.findById(t._id).catch(() => null))?.username ?? t._id.slice(0, 8),
+      solves: t.solves,
+    })));
+    return { mine, today, leaders };
+  });
+
+  // ── Learn ────────────────────────────────────────────
+  /** @openapi GET /api/v1/learn/curriculum — lessons + progress. */
+  app.get('/api/v1/learn/curriculum', async (req) => {
+    const { CURRICULUM } = await import('../modules/learn/curriculum.js');
+    const { progress } = await import('../modules/learn/service.js');
+    const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
+    const sid = getSessionId({ cookies, headers: req.headers });
+    let done: Record<string, string[]> = {};
+    if (sid !== null) {
+      const me = await (await getAuthService()).me(sid).catch(() => null);
+      if (me !== null) done = await progress(me.id);
+    }
+    return {
+      lessons: CURRICULUM.map((l) => ({
+        id: l.id,
+        title: l.title,
+        description: l.description,
+        steps: l.steps.map((s) => ({
+          id: s.id,
+          title: s.title,
+          explain: s.explain,
+          size: s.size,
+          wallsPerPlayer: s.wallsPerPlayer,
+          turn: s.turn,
+          pawns: s.pawns,
+          walls: s.walls,
+          wallsRemaining: s.wallsRemaining,
+          task: s.task,
+          needGain: s.needGain ?? null,
+          solved: (done[l.id] ?? []).includes(s.id),
+        })),
+      })),
+    };
+  });
+
+  /** @openapi POST /api/v1/learn/attempt — solve a lesson step. */
+  app.post('/api/v1/learn/attempt', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { lessonId?: string; stepId?: string; action?: unknown };
+    if (typeof body.lessonId !== 'string' || typeof body.stepId !== 'string') throw new ValidationError('Invalid attempt');
+    const { GameActionSchema } = await import('../common/validation/schemas.js');
+    const parsed = GameActionSchema.safeParse(body.action);
+    if (!parsed.success) throw new ValidationError('Invalid action');
+    const { findStep } = await import('../modules/learn/curriculum.js');
+    const { gradeStep, recordSolved } = await import('../modules/learn/service.js');
+    const found = findStep(body.lessonId, body.stepId);
+    if (found === null) throw new ValidationError('Unknown lesson step');
+    const result = gradeStep(found.step, parsed.data);
+    if (result.solved) await recordSolved(userId, body.lessonId, body.stepId);
+    return result;
+  });
+
+  /** @openapi GET /api/v1/learn/openings — mined opening book. */
+  app.get('/api/v1/learn/openings', async () => {
+    const { OPENING_BOOK } = await import('../modules/learn/openings.js');
+    return OPENING_BOOK;
+  });
+
   /** @openapi POST /api/v1/puzzles/daily/attempt — submit a wall. */
   app.post('/api/v1/puzzles/daily/attempt', async (req) => {
     const userId = await requireUserId(req);
@@ -1147,6 +1303,67 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     if (!parsed.success) throw new ValidationError('Invalid wall');
     const { attemptDaily } = await import('../modules/puzzles/service.js');
     return attemptDaily(userId, parsed.data);
+  });
+
+  /** @openapi GET /api/v1/ai/coach-summary/:gameId — whole-game AI narrative. */
+  app.get('/api/v1/ai/coach-summary/:gameId', async (req) => {
+    const userId = await requireUserId(req);
+    const { gameId } = req.params as { gameId: string };
+    const provider = activeProvider();
+    if (provider === null) {
+      return {
+        available: false as const,
+        message: 'AI Coach is not configured on this deployment. The engine review above is still available.',
+      };
+    }
+    const rev = await import('../../../engine/typescript/dist/review/index.js');
+    let actions: { type: 'move'; to: { r: number; c: number } }[] | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } }[] = [];
+    let size = 9;
+    let wallsPerPlayer = 10;
+    let winnerSeat: 0 | 1 | null = null;
+    try {
+      const g = gamesService.get(gameId);
+      actions = g.actions as typeof actions;
+      size = g.state.size;
+      wallsPerPlayer = g.state.wallsPerPlayer;
+      winnerSeat = g.winnerSeat;
+    } catch {
+      const { getMongoDb } = await import('../database/mongodb/client.js');
+      const { ReplayRepository } = await import('../database/mongodb/repositories/replay.repository.js');
+      const db = await getMongoDb();
+      const replay = await new ReplayRepository(db).findByGame(gameId);
+      if (replay === null) throw new ValidationError('Game not found');
+      actions = replay.actions as typeof actions;
+      const initial = replay.initialState as { size?: number; wallsPerPlayer?: number };
+      size = initial.size ?? 9;
+      wallsPerPlayer = initial.wallsPerPlayer ?? 10;
+      winnerSeat = replay.result?.winnerSeat ?? null;
+    }
+    if (actions.length === 0) throw new ValidationError('Nothing to summarize yet');
+    const review = rev.reviewGame({ size, wallsPerPlayer }, actions, 7, { wallCandidates: 12, budgetMs: 30 });
+    const count = (cls: string, p: 0 | 1): number =>
+      review.moves.filter((m) => m.by === p && (m.class === cls || (cls === 'BLUNDER' && m.class === 'MISTAKE'))).length;
+    let biggestSwing = 0;
+    for (let i = 1; i < review.evalCurve.length; i++) {
+      const swing = Math.abs((review.evalCurve[i] as number) - (review.evalCurve[i - 1] as number));
+      if (swing > biggestSwing) biggestSwing = swing;
+    }
+    const { coachGameSummary } = await import('../modules/ai/complete.js');
+    const result = await coachGameSummary(userId, provider.id, {
+      moves: actions.length,
+      winnerSeat,
+      accuracy: review.summary.accuracy,
+      blunders: [count('BLUNDER', 0), count('BLUNDER', 1)],
+      brilliants: [
+        review.moves.filter((m) => m.by === 0 && m.class === 'BRILLIANT').length,
+        review.moves.filter((m) => m.by === 1 && m.class === 'BRILLIANT').length,
+      ],
+      biggestSwing,
+    });
+    if (!result.ok) {
+      return { available: false as const, provider: result.provider ?? provider.id, message: result.error ?? 'Coach unavailable' };
+    }
+    return { available: true as const, provider: result.provider, explanation: result.explanation };
   });
 
   // ── AI (optional providers, graceful when unconfigured) ──

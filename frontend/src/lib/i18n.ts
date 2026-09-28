@@ -10,19 +10,19 @@ export type Lang = 'en' | 'ru' | 'uz';
 
 const STRINGS: Record<Lang, Record<string, string>> = {
   en: {
-    play: 'Play', bots: 'Bots', puzzles: 'Puzzles', training: 'Training',
+    play: 'Play', bots: 'Bots', puzzles: 'Puzzles', rush: 'Rush', learn: 'Learn', training: 'Training',
     ranks: 'Ranks', watch: 'Watch', friends: 'Friends', clubs: 'Clubs',
     cups: 'Cups', premium: 'Premium', settings: 'Settings', login: 'Login',
     logout: 'Logout', search: 'Search', inbox: 'Inbox',
   },
   ru: {
-    play: 'Играть', bots: 'Боты', puzzles: 'Задачи', training: 'Тренировка',
+    play: 'Играть', bots: 'Боты', puzzles: 'Задачи', rush: 'Блиц-задачи', learn: 'Учёба', training: 'Тренировка',
     ranks: 'Рейтинг', watch: 'Смотреть', friends: 'Друзья', clubs: 'Клубы',
     cups: 'Турниры', premium: 'Премиум', settings: 'Настройки', login: 'Войти',
     logout: 'Выйти', search: 'Поиск', inbox: 'Входящие',
   },
   uz: {
-    play: 'O‘ynash', bots: 'Botlar', puzzles: 'Jumboqlar', training: 'Mashq',
+    play: 'O‘ynash', bots: 'Botlar', puzzles: 'Jumboqlar', rush: 'Rush', learn: 'O‘rganish', training: 'Mashq',
     ranks: 'Reyting', watch: 'Tomosha', friends: 'Do‘stlar', clubs: 'Klublar',
     cups: 'Turnirlar', premium: 'Premium', settings: 'Sozlamalar', login: 'Kirish',
     logout: 'Chiqish', search: 'Qidiruv', inbox: 'Xatlar',

@@ -70,12 +70,12 @@ function probeGain(state: GameState, player: PlayerIndex, wall: Wall): { legal: 
 const LINE_BOTS = ['fortress', 'runner', 'architect', 'assassin', 'calculator', 'endgame'];
 
 /**
- * Generate (pure function of date) the daily puzzle.
- * Throws only when no choke is found in budget; callers fall back to the
- * previous day, which is also deterministic.
+ * Generate a choke puzzle from any seed string (pure function of the seed).
+ * Throws only when no choke is found in budget; callers fall back to a
+ * neighbouring seed, which is also deterministic.
  */
-export function dailyPuzzle(date: string): DailyPuzzle {
-  const seed = hashDate(date);
+export function seededPuzzle(seedString: string, puzzleId: string, promptDate: string): DailyPuzzle {
+  const seed = hashDate(seedString);
   for (let attempt = 0; attempt < 8; attempt++) {
     const stream = (seed + attempt * 2654435761) >>> 0;
     const botA = getBot(LINE_BOTS[stream % LINE_BOTS.length] as string);
@@ -108,8 +108,8 @@ export function dailyPuzzle(date: string): DailyPuzzle {
       }
       if (best !== null && bestGain >= PUZZLE_NEED_GAIN) {
         return {
-          puzzleId: `daily-${date}`,
-          date,
+          puzzleId,
+          date: promptDate,
           prompt: `Find a wall that lengthens the opponent's shortest route by ${PUZZLE_NEED_GAIN} or more.`,
           size: pos.size,
           turn: me,
@@ -123,7 +123,16 @@ export function dailyPuzzle(date: string): DailyPuzzle {
       }
     }
   }
-  throw new Error(`no daily choke found for ${date}`);
+  throw new Error(`no choke found for seed ${seedString}`);
+}
+
+/**
+ * Generate (pure function of date) the daily puzzle.
+ * Throws only when no choke is found in budget; callers fall back to the
+ * previous day, which is also deterministic.
+ */
+export function dailyPuzzle(date: string): DailyPuzzle {
+  return seededPuzzle(date, `daily-${date}`, date);
 }
 
 /** Grade a submitted wall against the puzzle position. */

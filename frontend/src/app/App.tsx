@@ -2,33 +2,41 @@
  * App shell: persistent sidebar (desktop), top bar + drawer (tablet),
  * bottom tabs (mobile), session bootstrap, route map.
  */
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
-import HomePage from '../pages/home/HomePage.js';
-import LoginPage from '../pages/login/LoginPage.js';
-import SignupPage from '../pages/login/SignupPage.js';
-import { ForgotPage, ResetPage } from '../pages/login/ForgotPage.js';
-import LobbyPage from '../pages/lobby/LobbyPage.js';
-import PlayPage from '../pages/play/PlayPage.js';
-import LocalGamePage from '../pages/play/LocalGamePage.js';
-import MultiGamePage from '../pages/play/MultiGamePage.js';
-import GamePage from '../pages/game/GamePage.js';
-import ReplayPage from '../pages/replay/ReplayPage.js';
-import PuzzlesPage from '../pages/puzzles/PuzzlesPage.js';
-import TrainingPage from '../pages/training/TrainingPage.js';
-import FriendsPage from '../pages/friends/FriendsPage.js';
-import ClubsPage from '../pages/clubs/ClubsPage.js';
-import TournamentsPage from '../pages/tournaments/TournamentsPage.js';
-import PremiumPage from '../pages/premium/PremiumPage.js';
-import ProfilePage from '../pages/profile/ProfilePage.js';
+import { Spinner } from '../components/ui/primitives.js';
+
+const HomePage = lazy(() => import('../pages/home/HomePage.js'));
+const LoginPage = lazy(() => import('../pages/login/LoginPage.js'));
+const SignupPage = lazy(() => import('../pages/login/SignupPage.js'));
+const ForgotPage = lazy(() => import('../pages/login/ForgotPage.js').then((m) => ({ default: m.ForgotPage })));
+const ResetPage = lazy(() => import('../pages/login/ForgotPage.js').then((m) => ({ default: m.ResetPage })));
+const LobbyPage = lazy(() => import('../pages/lobby/LobbyPage.js'));
+const PlayPage = lazy(() => import('../pages/play/PlayPage.js'));
+const LocalGamePage = lazy(() => import('../pages/play/LocalGamePage.js'));
+const MultiGamePage = lazy(() => import('../pages/play/MultiGamePage.js'));
+const GamePage = lazy(() => import('../pages/game/GamePage.js'));
+const ReplayPage = lazy(() => import('../pages/replay/ReplayPage.js'));
+const PuzzlesPage = lazy(() => import('../pages/puzzles/PuzzlesPage.js'));
+const RushPage = lazy(() => import('../pages/rush/RushPage.js'));
+const LearnPage = lazy(() => import('../pages/learn/LearnPage.js'));
+const DesignerPage = lazy(() => import('../pages/designer/DesignerPage.js'));
+const TrainingPage = lazy(() => import('../pages/training/TrainingPage.js'));
+const FriendsPage = lazy(() => import('../pages/friends/FriendsPage.js'));
+const ClubsPage = lazy(() => import('../pages/clubs/ClubsPage.js'));
+const TournamentsPage = lazy(() => import('../pages/tournaments/TournamentsPage.js'));
+const PremiumPage = lazy(() => import('../pages/premium/PremiumPage.js'));
+const ProfilePage = lazy(() => import('../pages/profile/ProfilePage.js'));
 import { useLocation } from 'react-router-dom';
-import NotificationsPage from '../pages/notifications/NotificationsPage.js';
-import SearchPage from '../pages/search/SearchPage.js';
-import { FairPlayPage, PrivacyPage, TermsPage } from '../pages/legal/LegalPages.js';
-import BotsPage from '../pages/bots/BotsPage.js';
-import LeaderboardPage from '../pages/leaderboard/LeaderboardPage.js';
-import WatchPage from '../pages/watch/WatchPage.js';
-import SettingsPage from '../pages/settings/SettingsPage.js';
+const NotificationsPage = lazy(() => import('../pages/notifications/NotificationsPage.js'));
+const SearchPage = lazy(() => import('../pages/search/SearchPage.js'));
+const TermsPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.TermsPage })));
+const PrivacyPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.PrivacyPage })));
+const FairPlayPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.FairPlayPage })));
+const BotsPage = lazy(() => import('../pages/bots/BotsPage.js'));
+const LeaderboardPage = lazy(() => import('../pages/leaderboard/LeaderboardPage.js'));
+const WatchPage = lazy(() => import('../pages/watch/WatchPage.js'));
+const SettingsPage = lazy(() => import('../pages/settings/SettingsPage.js'));
 import { BRAND } from '../lib/brand.js';
 import { useT } from '../lib/i18n.js';
 import { useSession } from '../stores/session.js';
@@ -70,6 +78,8 @@ const ITEMS: NavItem[] = [
   { to: '/play', label: 'Play', i18n: 'play', icon: 'play' },
   { to: '/bots', label: 'Bots', i18n: 'bots', icon: 'bots' },
   { to: '/puzzles', label: 'Puzzles', i18n: 'puzzles', icon: 'puzzles' },
+  { to: '/rush', label: 'Rush', i18n: 'rush', icon: 'puzzles' },
+  { to: '/learn', label: 'Learn', i18n: 'learn', icon: 'training' },
   { to: '/training', label: 'Training', i18n: 'training', icon: 'training', authOnly: true },
   { to: '/leaderboard', label: 'Ranks', i18n: 'ranks', icon: 'board' },
   { to: '/watch', label: 'Watch', i18n: 'watch', icon: 'watch' },
@@ -341,6 +351,7 @@ export default function App() {
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <TopBar onMenu={() => setDrawer(true)} />
         <main style={{ maxWidth: 1200, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
+          <Suspense fallback={<div style={{ padding: 24 }}><Spinner /></div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage />} />
@@ -355,6 +366,10 @@ export default function App() {
             <Route path="/game/:id" element={<GamePage />} />
             <Route path="/replay/:id" element={<ReplayPage />} />
             <Route path="/puzzles" element={<PuzzlesPage />} />
+            <Route path="/rush" element={<RushPage />} />
+            <Route path="/learn" element={<LearnPage />} />
+            <Route path="/designer" element={<DesignerPage />} />
+          <Route path="/rush" element={<RushPage />} />
           <Route path="/training" element={<TrainingPage />} />
             <Route path="/friends" element={<FriendsPage />} />
             <Route path="/clubs" element={<ClubsPage />} />
@@ -375,6 +390,7 @@ export default function App() {
             <Route path="/fair-play" element={<FairPlayPage />} />
             <Route path="*" element={<div><h1>404</h1><p>Arena not found. <Link to="/">Go home</Link></p></div>} />
           </Routes>
+          </Suspense>
         </main>
         <footer style={{ borderTop: '1px solid var(--line)', color: 'var(--muted)', fontSize: 13 }}>
           <div style={{ maxWidth: 1200, margin: '0 auto', padding: '16px 20px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>

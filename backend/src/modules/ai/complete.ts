@@ -171,10 +171,31 @@ async function logUsage(userId: string, feature: string, provider: string, ok: b
 }
 
 /**
- * Explain engine facts in natural language. `facts` is the reviewed move
- * (paths before/after, played vs best) — the model receives numbers, and
- * its system prompt forbids inventing board facts.
+ * Shared gate: provider support, kill-switch, monthly budget, key, quota.
+ * Returns the redaction reason or null when the call may proceed.
  */
+async function gate(
+  userId: string, provider: AIProviderId, feature: string,
+): Promise<{ key: string; model: string } | { error: string; quotaLeft?: boolean }> {
+  if (!isCompat(provider)) {
+    return { error: `${provider} live calls are not implemented yet — configure groq, openai or openrouter.` };
+  }
+  if (!(await featureEnabled('AI_COACH'))) {
+    return { error: 'AI Coach is disabled by the platform team right now' };
+  }
+  const monthlyBudget = Number(process.env['AI_MONTHLY_BUDGET_USD'] ?? 25);
+  if (Number.isFinite(monthlyBudget) && monthlyBudget > 0 && (await monthlySpendUsd()) >= monthlyBudget) {
+    logger.warn('Monthly AI budget exhausted — refusing coach call');
+    return { error: 'platform AI budget exhausted for this month' };
+  }
+  const key = readKey(provider);
+  if (key === null) return { error: 'provider not configured' };
+  if (!(await quotaLeft(userId, feature))) {
+    return { error: 'daily AI quota reached — try again tomorrow', quotaLeft: false };
+  }
+  return { key, model: process.env['AI_MODEL_COACH']?.trim() || DEFAULT_MODEL[provider] };
+}
+
 function isCompat(provider: AIProviderId): provider is CompatId {
   return (OPENAI_COMPATIBLE as readonly string[]).includes(provider);
 }
@@ -184,23 +205,12 @@ export async function coachExplanation(
   provider: AIProviderId,
   facts: { moveNumber: number; playedAction: string; bestAction: string; ownPathBefore: number; ownPathAfter: number; oppPathBefore: number; oppPathAfter: number; question?: string },
 ): Promise<CoachResult> {
-  if (!isCompat(provider)) {
-    return { ok: false, error: `${provider} live calls are not implemented yet — configure groq, openai or openrouter.` };
-  }
-  if (!(await featureEnabled('AI_COACH'))) {
-    return { ok: false, error: 'AI Coach is disabled by the platform team right now' };
-  }
-  const monthlyBudget = Number(process.env['AI_MONTHLY_BUDGET_USD'] ?? 25);
-  if (Number.isFinite(monthlyBudget) && monthlyBudget > 0 && (await monthlySpendUsd()) >= monthlyBudget) {
-    logger.warn('Monthly AI budget exhausted — refusing coach call');
-    return { ok: false, error: 'platform AI budget exhausted for this month' };
-  }
-  const key = readKey(provider);
-  if (key === null) return { ok: false, error: 'provider not configured' };
-  if (!(await quotaLeft(userId, 'coach'))) {
-    return { ok: false, error: 'daily AI quota reached — try again tomorrow', quotaLeft: false };
-  }
-  const model = process.env['AI_MODEL_COACH']?.trim() || DEFAULT_MODEL[provider];
+  const g = await gate(userId, provider, 'coach');
+  if ('error' in g) return { ok: false, error: g.error, ...(g.quotaLeft === false ? { quotaLeft: false as const } : {}) };
+  // gate() already verified compatibility; this re-check only narrows the type.
+  if (!isCompat(provider)) return { ok: false, error: 'provider not supported' };
+  const key = g.key;
+  const model = g.model;
   const system = [
     'You are a wall-and-pawn strategy coach. You receive ENGINE-COMPUTED facts.',
     'Explain them in ≤120 words, plain language, one concrete tip.',
@@ -240,6 +250,90 @@ export async function coachExplanation(
       await logUsage(userId, 'coach', provider, false);
       logger.warn({ provider, status: res.status }, 'AI coach provider error');
       return { ok: false, provider, error: err };
+    }
+    const parsed = CompletionSchema.safeParse(await res.json().catch(() => ({})));
+    if (!parsed.success) {
+      await logUsage(userId, 'coach', provider, false);
+      return { ok: false, provider, error: 'provider returned an unreadable response' };
+    }
+    const text = (parsed.data.choices[0]?.message.content ?? '').trim().slice(0, 2000);
+    if (text === '') {
+      await logUsage(userId, 'coach', provider, false);
+      return { ok: false, provider, error: 'provider returned an empty response' };
+    }
+    await logUsage(
+      userId, 'coach', provider, true,
+      parsed.data.usage?.prompt_tokens, parsed.data.usage?.completion_tokens,
+    );
+    return { ok: true, provider, explanation: text };
+  } catch (err) {
+    await logUsage(userId, 'coach', provider, false);
+    return { ok: false, provider, error: err instanceof Error && err.name === 'AbortError' ? 'provider timed out' : 'provider unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface GameSummaryFacts {
+  moves: number;
+  winnerSeat: 0 | 1 | null;
+  accuracy: [number, number];
+  blunders: [number, number];
+  brilliants: [number, number];
+  biggestSwing: number;
+}
+
+/**
+ * Whole-game narrative from review aggregates. Same gates, quotas and
+ * validation as per-move coaching; the model still only receives numbers.
+ */
+export async function coachGameSummary(
+  userId: string,
+  provider: AIProviderId,
+  facts: GameSummaryFacts,
+): Promise<CoachResult> {
+  const g = await gate(userId, provider, 'coach');
+  if ('error' in g) return { ok: false, error: g.error, ...(g.quotaLeft === false ? { quotaLeft: false as const } : {}) };
+  // gate() already verified compatibility; this re-check only narrows the type.
+  if (!isCompat(provider)) return { ok: false, error: 'provider not supported' };
+  const system = [
+    'You are a wall-and-pawn strategy coach. You receive ENGINE-COMPUTED game facts.',
+    'Summarize the game in ≤150 words: who played cleaner, the turning point, one training tip.',
+    'NEVER invent moves, positions, or numbers — only use the facts given.',
+  ].join(' ');
+  const userPrompt = [
+    `Game over ${facts.moves} moves. Winner: ${facts.winnerSeat === null ? 'draw' : `seat ${facts.winnerSeat}`}.`,
+    `Accuracy: seat 0 = ${facts.accuracy[0]}, seat 1 = ${facts.accuracy[1]}.`,
+    `Blunders: seat 0 = ${facts.blunders[0]}, seat 1 = ${facts.blunders[1]}.`,
+    `Brilliant moves: seat 0 = ${facts.brilliants[0]}, seat 1 = ${facts.brilliants[1]}.`,
+    `Biggest route-pressure swing in one stretch: ${facts.biggestSwing} steps.`,
+  ].join('\n');
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(`${BASE_URL[provider]}/chat/completions`, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${g.key}`,
+        ...(provider === 'openrouter' ? { 'HTTP-Referer': process.env['FRONTEND_URL'] ?? 'http://localhost:5173' } : {}),
+      },
+      body: JSON.stringify({
+        model: g.model,
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: userPrompt },
+        ],
+        max_tokens: 600,
+        temperature: 0.4,
+      }),
+    });
+    if (!res.ok) {
+      await logUsage(userId, 'coach', provider, false);
+      logger.warn({ provider, status: res.status }, 'AI coach provider error');
+      return { ok: false, provider, error: `provider error ${res.status}` };
     }
     const parsed = CompletionSchema.safeParse(await res.json().catch(() => ({})));
     if (!parsed.success) {

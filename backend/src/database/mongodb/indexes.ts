@@ -25,6 +25,9 @@ export async function ensureIndexes(db: Db): Promise<string[]> {
   await ensure(COLLECTIONS.announcements, { startsAt: -1 });
   await ensure(COLLECTIONS.bans, { userId: 1, createdAt: -1 });
   await ensure(COLLECTIONS.ai_quotas, { userId: 1, day: 1 }, { unique: true, name: 'ai_quotas_user_day' });
+  await ensure(COLLECTIONS.rush_solves, { userId: 1, date: -1 });
+  await ensure(COLLECTIONS.rush_solves, { seed: 1, userId: 1 }, { unique: true, sparse: true, name: 'rush_seed_user' });
+  await ensure(COLLECTIONS.lesson_progress, { userId: 1, lessonId: 1 }, { unique: true, name: 'lesson_user_lesson' });
   await ensure(COLLECTIONS.analytics_events, { name: 1, createdAt: -1 });
   await ensure(COLLECTIONS.password_resets, { expiresAt: 1 });
 

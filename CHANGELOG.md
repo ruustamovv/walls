@@ -3,6 +3,15 @@
 All notable changes to PROJECT_NEXUS (dev codename) are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — 2026-09-27 — S full smoothing pass
+
+### Changed
+- Board tree memoized (cells, grooves, pawns, cards, lists, meter) with
+  stable refs; clock ticks render at most once per displayed second and
+  pause in hidden tabs; online clocks interpolate locally between
+  authoritative snapshots; groove hover rAF-debounced; routes lazy-split
+  (41KB entry); theme pre-paint kills the flash; seat colors themed.
+
 ## [Unreleased] — 2026-09-27 — M6 game theater + auth + social + admin depth
 
 ### Added

@@ -2,7 +2,7 @@
  * N-player board: same groove geometry as GameBoard, N pawn tokens,
  * per-seat goal-edge tinting. Pure renderer over the multi engine state.
  */
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import {
   getMultiLegalMoves,
   getMultiLegalWalls,
@@ -13,7 +13,7 @@ import {
   type SeatSide,
 } from '../../../../engine/typescript/index.js';
 
-export const SEAT_COLORS = ['var(--player-a)', 'var(--player-b)', '#34d399', '#a78bfa'];
+export const SEAT_COLORS = ['var(--player-a)', 'var(--player-b)', 'var(--player-c)', 'var(--player-d)'];
 
 export interface MultiBoardProps {
   state: MultiState;
@@ -50,7 +50,7 @@ function goalTint(side: SeatSide, r: number, c: number, size: number): boolean {
   return c === 0;
 }
 
-export default function MultiBoard({ state, humanSeats, interactive, onMove, onWall, lastAction = null }: MultiBoardProps) {
+export default memo(function MultiBoard({ state, humanSeats, interactive, onMove, onWall, lastAction = null }: MultiBoardProps) {
   const { size, players } = state;
   const canAct = interactive && !state.isOver && humanSeats.includes(state.turn);
   const [hover, setHover] = useState<string | null>(null);
@@ -197,4 +197,4 @@ export default function MultiBoard({ state, humanSeats, interactive, onMove, onW
       </div>
     </div>
   );
-}
+})

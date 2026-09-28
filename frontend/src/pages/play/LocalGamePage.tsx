@@ -13,6 +13,7 @@ import ResultModal from '../../components/game/ResultModal.js';
 import { Button, Card } from '../../components/ui/primitives.js';
 import { useLocalGame } from '../../hooks/useLocalGame.js';
 import { useTheme } from '../../hooks/useTheme.js';
+import { decodePosition } from '../../lib/position.js';
 
 export default function LocalGamePage() {
   const [params] = useSearchParams();
@@ -26,13 +27,19 @@ export default function LocalGamePage() {
   const clockSec = Math.max(0, Number(params.get('clock') ?? 0) || 0);
   const incSec = Math.max(0, Number(params.get('inc') ?? 0) || 0);
 
+  const fromCode = params.get('from');
+  const from = fromCode !== null && fromCode !== '' ? decodePosition(fromCode) : null;
   const game = useLocalGame({
-    size, wallsPerPlayer: walls, mode,
+    size: from?.state.size ?? size,
+    wallsPerPlayer: from?.state.wallsPerPlayer ?? walls,
+    mode,
     botId: bot?.id ?? 'rookie',
     clockMs: clockSec * 1000, incrementMs: incSec * 1000,
+    ...(from !== null ? { from } : {}),
   });
   const { state, actions } = game;
   const done = game.winnerSeat !== null;
+  const humanSeats = useMemo(() => (mode === 'local' ? [0, 1] : [0]) as (0 | 1)[], [mode]);
 
   // Casual analysis aid: show both shortest paths (offline modes only).
   const paths = useMemo(() => {
@@ -76,7 +83,7 @@ export default function LocalGamePage() {
           </div>
           <GameBoard
             state={state}
-            humanSeats={mode === 'local' ? [0, 1] : [0]}
+            humanSeats={humanSeats}
             interactive={!done && !game.botThinking}
             onMove={game.doMove}
             onWall={game.doWall}
@@ -106,8 +113,8 @@ export default function LocalGamePage() {
           </Card>
           <Card>
             <PathMeter
-              own={findShortestPath(state, 0).length}
-              opp={findShortestPath(state, 1).length}
+              own={paths === null ? -1 : paths.a.length - 1}
+              opp={paths === null ? -1 : paths.b.length - 1}
             />
           </Card>
           <Card>

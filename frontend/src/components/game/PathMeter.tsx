@@ -2,7 +2,9 @@
  * Path-pressure meter: live route-length duel from engine facts.
  * Shows distance only — no advice, ranked-safe.
  */
-export default function PathMeter({ own, opp, flip = false }: { own: number; opp: number; flip?: boolean }) {
+import { memo } from 'react';
+
+export default memo(function PathMeter({ own, opp, flip = false }: { own: number; opp: number; flip?: boolean }) {
   const a = own < 0 ? 99 : own;
   const b = opp < 0 ? 99 : opp;
   const total = Math.max(1, a + b);
@@ -22,4 +24,4 @@ export default function PathMeter({ own, opp, flip = false }: { own: number; opp
       </div>
     </div>
   );
-}
+})

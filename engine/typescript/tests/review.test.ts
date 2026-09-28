@@ -28,6 +28,34 @@ describe('review: labels', () => {
     assert.deepEqual(a, b);
   });
 
+  it('classifies moves, scores accuracy and tracks the eval curve', () => {
+    const actions = [
+      { type: 'move', to: { r: 1, c: 4 } },
+      { type: 'move', to: { r: 7, c: 4 } },
+      { type: 'move', to: { r: 2, c: 4 } },
+      { type: 'move', to: { r: 6, c: 4 } },
+    ] as const;
+    const review = reviewGame({ size: 9, wallsPerPlayer: 10 }, actions.map((x) => ({ ...x })));
+    assert.equal(review.moves.length, 4);
+    assert.equal(review.evalCurve.length, 4);
+    for (const m of review.moves) {
+      assert.ok(['BRILLIANT', 'BEST', 'EXCELLENT', 'GOOD', 'INACCURACY', 'MISTAKE', 'BLUNDER'].includes(m.class));
+    }
+    // Clean forward marches are near-perfect.
+    assert.ok(review.summary.accuracy[0] >= 80);
+    assert.ok(review.summary.accuracy[1] >= 80);
+    const total = review.summary.classCounts[0].BEST + review.summary.classCounts[0].GOOD
+      + review.summary.classCounts[0].EXCELLENT + review.summary.classCounts[0].BRILLIANT;
+    assert.ok(total >= 1);
+  });
+
+  it('parses best-action strings back into actions', async () => {
+    const { parseBestAction } = await import('../review/analyze.js');
+    assert.deepEqual(parseBestAction('move 3,4'), { type: 'move', to: { r: 3, c: 4 } });
+    assert.deepEqual(parseBestAction('wall h 2,2'), { type: 'wall', wall: { orientation: 'h', r: 2, c: 2 } });
+    assert.equal(parseBestAction('nonsense'), null);
+  });
+
   it('reviews a real bot game end to end', () => {
     const white = getBot('runner');
     const black = getBot('rookie');

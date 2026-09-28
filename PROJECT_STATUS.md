@@ -80,8 +80,21 @@ privacy enforcement, announcements, analytics, warn/mute/annul, AI budgets
 Evidence: backend 61/61 lint-clean, engine 49/49, `verify:live` 8/8 exit 0,
 frontend + admin typecheck + build clean.
 
+## Milestone S — full smoothing pass (2026-09-27)
+
+Delivered: memoized board tree (cells/grooves/pawns/cards/lists/meter),
+stable callback/prop refs, memoized path computations, second-granular
+ticks (updater bail-out, no render without a visible change), hidden-tab
+timer pause + resync, client-side online clock interpolation between
+authoritative snapshots, rAF-debounced groove hover, pre-paint theme
+script (no flash), seat colors in theme vars, lazy route splitting
+(41KB entry, was 400KB monolith). Fonts already display=swap.
+Evidence: frontend typecheck + build clean, backend 61/61 lint-clean,
+engine 49/49, `verify:live` 8/8 exit 0. Profiler confirmation still wants
+a real browser pass (React DevTools: clock ticks must skip GameBoard).
+
 ## Current focus
-1. Manual two-browser + mobile-viewport QA pass (visual polish from findings).
-2. Online 4P (service/socket/matchmaking for N seats), Fog/Team/Chaos modes.
-3. Nemesis/Mirror/Architect, cosmetics catalog, lessons curriculum.
+1. F1 review-as-retention-core (accuracy, eval graph, retry mistakes, coach v2).
+2. F2 Puzzle Rush/Survival, F3 Learn vertical + opening explorer + position designer.
+3. F4 Arenas + bot banter/Nemesis; AI commentator + fallback chain.
 4. Phase 01 follow-up: live registrar checks for top-5 brands (.com + .uz) + trademark screen before purchase.

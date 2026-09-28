@@ -69,8 +69,10 @@ export {
 export {
   describeAction,
   mobilityOf,
+  parseBestAction,
   reviewGame,
   type GameReview,
+  type MoveClass,
   type ReviewedMove,
   type ReviewLabel,
   type ReviewOptions,
@@ -78,6 +80,7 @@ export {
 export {
   dailyPuzzle,
   gradeAttempt,
+  seededPuzzle,
   todayKey,
   type AttemptVerdict,
   type DailyPuzzle,
