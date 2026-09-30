@@ -1,44 +1,47 @@
 /**
- * NEXUS theme system v2 — dual theme (light site + dark arena).
- *
- * The document root carries data-theme="site" (default) or "arena".
- * Game routes set "arena"; everything else uses "site".
- * Components must use these variables — no raw hex in tsx.
+ * Quoridor theme v3 — smooth, fascinating, chess.com-grade.
+ * data-theme="site" (light paper) default, "arena" (dark) on game routes.
+ * data-board="midnight|paper|ember|quoridor" on board wrapper.
  */
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700;800&display=swap');
 
 :root,
 html[data-theme='site'] {
-  --bg: #f7f5f0;
+  --bg: #faf8f2;
   --surface: #ffffff;
-  --surface-2: #f1eee6;
-  --ink: #101418;
-  --muted: #5b6470;
-  --faint: #8a93a0;
-  --line: #e7e4dc;
-  --primary: #1a56db;
+  --surface-2: #f2eee3;
+  --ink: #13122e;
+  --muted: #5f6272;
+  --faint: #9aa0b4;
+  --line: #e8e2d4;
+  --primary: #4f46e5;
   --primary-ink: #ffffff;
-  --primary-soft: #e8effd;
+  --primary-soft: #ecebff;
   --good: #15803d;
   --good-soft: #e7f6ec;
   --bad: #b91c1c;
   --bad-soft: #fdecec;
   --warn: #b45309;
-  --warn-soft: #fef6e7;
-  --player-a: #1a56db;
-  --player-b: #c2410c;
+  --warn-soft: #fef3d8;
+  --gold: #d97706;
+  --gold-soft: #fef3c7;
+  --brilliant: #7c3aed;
+  --great: #2563eb;
+  --player-a: #4f46e5;
+  --player-b: #f59e0b;
   --player-c: #0e9f6e;
   --player-d: #7c3aed;
-  --wall: #3f4753;
-  --wall-ghost-ok: rgba(26, 86, 219, .45);
+  --wall: #3b3a5e;
+  --wall-ghost-ok: rgba(79, 70, 229, .45);
   --wall-ghost-bad: rgba(185, 28, 28, .45);
-  --cell: #fdfcf9;
-  --cell-alt: #f4f1ea;
-  --board-shell: #e9e4d8;
-  --goal: rgba(26, 86, 219, .10);
-  --clock-active: #eef3fe;
-  --shadow-card: 0 1px 3px rgba(16, 20, 24, .06);
-  --shadow-pop: 0 20px 60px rgba(16, 20, 24, .25);
+  --cell: #fffefb;
+  --cell-alt: #f4f0e4;
+  --board-shell: #e6ddc8;
+  --goal: rgba(79, 70, 229, .10);
+  --clock-active: #eef0ff;
+  --shadow-card: 0 1px 2px rgba(19,18,46,.05), 0 8px 24px rgba(19,18,46,.06);
+  --shadow-pop: 0 20px 60px rgba(19,18,46,.22);
+  --shadow-lift: 0 6px 18px rgba(79,70,229,.18);
 
   --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
   --font-ui: ui-sans-serif, system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
@@ -70,36 +73,41 @@ html[data-theme='site'] {
 }
 
 html[data-theme='arena'] {
-  --bg: #0b0e14;
-  --surface: #131826;
-  --surface-2: #1a2133;
-  --ink: #eef1f6;
-  --muted: #9aa4b5;
-  --faint: #5d6678;
-  --line: #263049;
-  --primary: #38bdf8;
-  --primary-ink: #06121f;
-  --primary-soft: #0e2a3f;
+  --bg: #0a0b16;
+  --surface: #14162a;
+  --surface-2: #1d2038;
+  --ink: #f1f2fb;
+  --muted: #9aa0b8;
+  --faint: #5d6584;
+  --line: #262b4a;
+  --primary: #818cf8;
+  --primary-ink: #0a0b16;
+  --primary-soft: #23264d;
   --good: #34d399;
   --good-soft: #0b2b22;
   --bad: #f87171;
   --bad-soft: #3a1414;
   --warn: #fbbf24;
   --warn-soft: #33230a;
+  --gold: #fbbf24;
+  --gold-soft: #33230a;
+  --brilliant: #a78bfa;
+  --great: #60a5fa;
   --player-a: #22d3ee;
   --player-b: #f59e0b;
   --player-c: #34d399;
   --player-d: #a78bfa;
-  --wall: #7dd3fc;
+  --wall: #a5b4fc;
   --wall-ghost-ok: rgba(34, 211, 238, .5);
   --wall-ghost-bad: rgba(248, 113, 113, .5);
-  --cell: #161d2e;
-  --cell-alt: #121829;
-  --board-shell: #080b12;
+  --cell: #171a31;
+  --cell-alt: #12142a;
+  --board-shell: #070812;
   --goal: rgba(34, 211, 238, .12);
-  --clock-active: #0e2a3f;
+  --clock-active: #23264d;
   --shadow-card: 0 2px 12px rgba(0, 0, 0, .45);
   --shadow-pop: 0 24px 70px rgba(0, 0, 0, .6);
+  --shadow-lift: 0 8px 28px rgba(129,140,248,.28);
 }
 
 @keyframes nexus-fade { from { opacity: 0; } to { opacity: 1; } }
@@ -108,6 +116,8 @@ html[data-theme='arena'] {
 @keyframes nexus-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 @keyframes nexus-win { 0% { transform: scale(.9); opacity: 0; } 60% { transform: scale(1.03); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes nexus-hop { 0% { transform: translateY(0); } 35% { transform: translateY(-22%); } 100% { transform: translateY(0); } }
+@keyframes quoridor-lift { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes quoridor-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 
 /* Board themes (data-board on the board wrapper). Midnight = theme default. */
 [data-board='paper'] {
@@ -123,6 +133,14 @@ html[data-theme='arena'] {
   --wall: #ff9a3c;
   --wall-ghost-ok: rgba(255, 154, 60, .5);
   --goal: rgba(255, 154, 60, .12);
+}
+[data-board='quoridor'] {
+  --cell: #f8f6ee;
+  --cell-alt: #ece7d5;
+  --board-shell: #13122e;
+  --wall: #4f46e5;
+  --wall-ghost-ok: rgba(79, 70, 229, .5);
+  --goal: rgba(79, 70, 229, .14);
 }
 @keyframes nexus-ring { 0% { transform: scale(.7); opacity: .9; } 100% { transform: scale(1.6); opacity: 0; } }
 @keyframes nexus-aura { 0%, 100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, .0); } 50% { box-shadow: 0 0 18px 2px rgba(34, 211, 238, .35); } }

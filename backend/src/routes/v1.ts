@@ -77,6 +77,23 @@ async function requireUserId(req: FastifyRequest): Promise<string> {
   return me.id;
 }
 
+/** Full record (includes the guest flag) for guest-gated routes. */
+async function requireUser(req: FastifyRequest): Promise<{ id: string; guest: boolean }> {
+  const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
+  const sid = getSessionId({ cookies, headers: req.headers });
+  if (sid === null) throw new AuthError('Missing session');
+  const me = await (await getAuthService()).me(sid);
+  if (me === null) throw new AuthError('Invalid session');
+  return { id: me.id, guest: me.guest };
+}
+
+/** Guests are casual-only: no ranked queue, no ranked games, no ratings. */
+function rejectRankedForGuest(guest: boolean, mode: string | undefined): void {
+  if (guest && mode !== undefined && mode !== 'casual') {
+    throw new ValidationError('Guests play casual — create an account for ranked');
+  }
+}
+
 /** Board preset per queue mode: ranked plays Standard, everything else Classic. */
 function presetForMode(mode: string): { boardSize: number; wallsPerPlayer: number } {
   return mode === 'ranked' ? { boardSize: 15, wallsPerPlayer: 20 } : { boardSize: 9, wallsPerPlayer: 10 };
@@ -101,7 +118,7 @@ async function storedRating(userId: string, timeControl: string): Promise<number
  */
 export async function registerV1(app: FastifyInstance): Promise<void> {
   // ── Probes ─────────────────────────────────────────
-  app.get('/api/v1/health', async () => ({ ok: true, service: 'nexus-backend' }));
+  app.get('/api/v1/health', async () => ({ ok: true, service: 'quoridor-backend' }));
   app.get('/api/v1/live', async () => ({ ok: true }));
   app.get('/api/v1/ready', async () => {
     const { checkMongoHealth } = await import('../database/mongodb/health.js');
@@ -159,6 +176,37 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     const sid = getSessionId({ cookies, headers: req.headers });
     if (sid !== null) await (await getAuthService()).logout(sid);
     return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/auth/guest — ephemeral guest session (tightly rate-limited). */
+  app.post('/api/v1/auth/guest', { config: { rateLimit: { max: 30, timeWindow: '1 hour' } } }, async (_req, reply) => {
+    const res = await (await getAuthService()).createGuest();
+    void reply.setCookie('nexus_session', res.session.id, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+    });
+    return { user: res.user };
+  });
+
+  /** @openapi POST /api/v1/auth/convert — upgrade a guest session to a full account. */
+  app.post('/api/v1/auth/convert', async (req, reply) => {
+    const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
+    const sid = getSessionId({ cookies, headers: req.headers });
+    if (sid === null) throw new AuthError('Missing session');
+    const svc = await getAuthService();
+    const cur = await svc.me(sid);
+    if (cur === null) throw new AuthError('Invalid session');
+    if (!cur.guest) throw new ValidationError('Only guest sessions can be converted');
+    const parsed = RegisterSchema.safeParse(req.body);
+    if (!parsed.success) throw new ValidationError('Invalid registration', { body: ['invalid'] });
+    const res = await svc.convertGuest(cur.id, parsed.data);
+    void reply.setCookie('nexus_session', res.session.id, {
+      httpOnly: true,
+      sameSite: 'lax',
+      path: '/',
+    });
+    return { user: res.user };
   });
 
   /** @openapi POST /api/v1/auth/forgot — request a reset link (always generic). */
@@ -289,13 +337,14 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     if (sid === null) throw new AuthError('Missing session');
     const me = await (await getAuthService()).me(sid);
     if (me === null) throw new AuthError('Invalid session');
-    return { user: { id: me.id, email: me.email, username: me.username, role: me.role } };
+    return { user: { id: me.id, email: me.email, username: me.username, role: me.role, guest: me.guest } };
   });
 
   // ── Games ──────────────────────────────────────────
   /** @openapi POST /api/v1/games — create game (server-authoritative). */
   app.post('/api/v1/games', async (req) => {
-    const userId = await requireUserId(req);
+    const me = await requireUser(req);
+    const userId = me.id;
     const parsed = CreateGameSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw new ValidationError('Invalid game options');
     if (parsed.data.opponentId !== undefined) {
@@ -315,6 +364,10 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       boardSize: parsed.data.boardSize,
       wallsPerPlayer: parsed.data.wallsPerPlayer,
       timeControl: parsed.data.timeControl,
+      // Guests are casual-only; any game involving a guest is casual (GST-001).
+      mode: me.guest || (parsed.data.opponentId !== undefined && await (await getAuthService()).isGuest(parsed.data.opponentId).catch(() => false))
+        ? 'casual'
+        : 'ranked',
       ...(parsed.data.opponentId !== undefined ? { opponentId: parsed.data.opponentId } : {}),
     });
     if (g.playerIds[1] !== null) {
@@ -433,9 +486,11 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   // ── Matchmaking ────────────────────────────────────
   /** @openapi POST /api/v1/matchmaking/join — join queue (anti-duplicate). */
   app.post('/api/v1/matchmaking/join', async (req) => {
-    const userId = await requireUserId(req);
+    const me = await requireUser(req);
+    const userId = me.id;
     const parsed = MatchmakingJoinSchema.safeParse(req.body ?? {});
     if (!parsed.success) throw new ValidationError('Invalid matchmaking options');
+    rejectRankedForGuest(me.guest, parsed.data.mode);
     // Server-side rating lookup; client rating never trusted.
     const rating = await storedRating(userId, parsed.data.timeControl);
     const queue = await getQueue();
@@ -500,7 +555,9 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   // ── Friends / presence ─────────────────────────────
   /** @openapi POST /api/v1/friends/request — send a friend request. */
   app.post('/api/v1/friends/request', async (req) => {
-    const userId = await requireUserId(req);
+    const me = await requireUser(req);
+    if (me.guest) throw new ValidationError('Guests cannot send friend requests — create an account first');
+    const userId = me.id;
     const body = (req.body ?? {}) as { username?: string };
     if (typeof body.username !== 'string' || body.username.length < 3) throw new ValidationError('Invalid username');
     const { sendRequest } = await import('../modules/friends/service.js');
@@ -555,7 +612,9 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   // ── Clubs ────────────────────────────────────────────
   /** @openapi POST /api/v1/clubs — found a club. */
   app.post('/api/v1/clubs', async (req) => {
-    const userId = await requireUserId(req);
+    const me = await requireUser(req);
+    if (me.guest) throw new ValidationError('Guests cannot found clubs — create an account first');
+    const userId = me.id;
     const body = (req.body ?? {}) as { name?: string; description?: string };
     if (typeof body.name !== 'string' || body.name.trim().length < 3) throw new ValidationError('Club name too short');
     const { getMongoDb } = await import('../database/mongodb/client.js');
@@ -600,7 +659,9 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
 
   /** @openapi POST /api/v1/clubs/:id/join — join a club. */
   app.post('/api/v1/clubs/:id/join', async (req) => {
-    const userId = await requireUserId(req);
+    const me = await requireUser(req);
+    if (me.guest) throw new ValidationError('Guests cannot join clubs — create an account first');
+    const userId = me.id;
     const { id } = req.params as { id: string };
     const { getMongoDb } = await import('../database/mongodb/client.js');
     const { ClubRepository } = await import('../database/mongodb/repositories/club.repository.js');
@@ -638,16 +699,17 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   /** @openapi POST /api/v1/tournaments — create (you auto-join). */
   app.post('/api/v1/tournaments', async (req) => {
     const userId = await requireUserId(req);
-    const body = (req.body ?? {}) as { title?: string; format?: string; timeControl?: string; mode?: string; rounds?: number; playersCap?: number };
+    const body = (req.body ?? {}) as { title?: string; format?: string; timeControl?: string; mode?: string; rounds?: number; playersCap?: number; durationMinutes?: number };
     const { createTournament } = await import('../modules/tournaments/service.js');
     try {
       const doc = await createTournament(userId, {
         title: typeof body.title === 'string' ? body.title : '',
-        ...(body.format === 'single-elim' || body.format === 'round-robin' || body.format === 'swiss' ? { format: body.format } : {}),
+        ...(body.format === 'single-elim' || body.format === 'round-robin' || body.format === 'swiss' || body.format === 'arena' ? { format: body.format } : {}),
         ...(typeof body.timeControl === 'string' ? { timeControl: body.timeControl } : {}),
         ...(typeof body.mode === 'string' ? { mode: body.mode } : {}),
         ...(typeof body.rounds === 'number' ? { rounds: body.rounds } : {}),
         ...(typeof body.playersCap === 'number' ? { playersCap: body.playersCap } : {}),
+        ...(typeof body.durationMinutes === 'number' ? { durationMinutes: body.durationMinutes } : {}),
       });
       return { tournament: doc };
     } catch (err) {
@@ -737,6 +799,44 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  /** @openapi POST /api/v1/tournaments/:id/arena-play — queue for an arena pairing. */
+  app.post('/api/v1/tournaments/:id/arena-play', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { arenaPlay } = await import('../modules/tournaments/service.js');
+    try {
+      const res = await arenaPlay(id, userId);
+      if (res.status === 'matched') {
+        try {
+          const { getMongoDb } = await import('../database/mongodb/client.js');
+          const { NotificationRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+          const db = await getMongoDb();
+          await new NotificationRepository(db).create({
+            userId, kind: 'match', title: 'Arena pairing found', body: res.gameId,
+          }).catch(() => undefined);
+        } catch {
+          // notifications advisory
+        }
+      }
+      return res;
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Arena queue failed');
+    }
+  });
+
+  /** @openapi POST /api/v1/tournaments/:id/finish — crown the leader (owner). */
+  app.post('/api/v1/tournaments/:id/finish', async (req) => {
+    const userId = await requireUserId(req);
+    const { id } = req.params as { id: string };
+    const { finishTournament } = await import('../modules/tournaments/service.js');
+    try {
+      await finishTournament(id, userId);
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'Finish failed');
+    }
+    return { ok: true };
+  });
+
   /** @openapi POST /api/v1/tournaments/:id/report — report a match winner. */
   app.post('/api/v1/tournaments/:id/report', async (req) => {
     const userId = await requireUserId(req);
@@ -755,30 +855,66 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   });
 
   // ── Premium (entitlements; payments provider selects later) ──
-  /** @openapi GET /api/v1/premium/status — tier + entitlements, honestly. */
+  /** @openapi GET /api/v1/premium/status — tier + entitlements, honestly. Free preview open for now. */
   app.get('/api/v1/premium/status', async (req) => {
+    const FREE_PREVIEW = true; // win-bar + review open to all until launch
     const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
     const sid = getSessionId({ cookies, headers: req.headers });
     if (sid === null) {
-      return { tier: 'free' as const, entitlements: [], payments: 'disabled' as const, reason: 'no provider configured' };
+      return { tier: 'free' as const, entitlements: FREE_PREVIEW ? ['AI_REVIEW_ADVANCED', 'REPLAY_ANALYTICS'] : [], payments: 'disabled' as const, reason: 'free preview open', freePreview: FREE_PREVIEW };
     }
     const me = await (await getAuthService()).me(sid).catch(() => null);
     if (me === null) {
-      return { tier: 'free' as const, entitlements: [], payments: 'disabled' as const, reason: 'no provider configured' };
+      return { tier: 'free' as const, entitlements: FREE_PREVIEW ? ['AI_REVIEW_ADVANCED', 'REPLAY_ANALYTICS'] : [], payments: 'disabled' as const, reason: 'free preview open', freePreview: FREE_PREVIEW };
     }
     const { getMongoDb } = await import('../database/mongodb/client.js');
     const { EntitlementRepository } = await import('../database/mongodb/repositories/premium.repository.js');
     const db = await getMongoDb().catch(() => null);
     const entitlements = db === null ? [] : await new EntitlementRepository(db).list(me.id);
     const provider = (process.env['PAYMENT_PROVIDER'] ?? 'none').trim().toLowerCase();
+    const effective = FREE_PREVIEW ? Array.from(new Set([...entitlements, 'AI_REVIEW_ADVANCED', 'REPLAY_ANALYTICS'])) : entitlements;
     return {
-      tier: entitlements.length > 0 ? ('premium' as const) : ('free' as const),
-      entitlements,
+      tier: effective.length > 0 ? ('premium' as const) : ('free' as const),
+      entitlements: effective,
       payments: 'disabled' as const,
+      freePreview: FREE_PREVIEW,
       reason: provider === 'none'
-        ? 'no payment provider configured — entitlements are granted by admins/promos only'
+        ? 'free preview open — win-bar + review accessible, entitlements granted by admins at launch'
         : `provider "${provider}" selected but checkout is not implemented yet`,
     };
+  });
+
+  /** @openapi POST /api/v1/challenges — 1v1 direct challenge request. */
+  app.post('/api/v1/challenges', async (req) => {
+    const me = await requireUser(req);
+    const userId = me.id;
+    const body = (req.body ?? {}) as { username?: string; timeControl?: string; mode?: string };
+    if (typeof body.username !== 'string' || body.username.trim().length < 2) throw new ValidationError('Pick a player');
+    const timeControl = typeof body.timeControl === 'string' ? body.timeControl : '3+1';
+    // Guest-involved challenges are always casual (GST-004 invite path).
+    const senderGuest = me.guest;
+    const mode = senderGuest ? 'casual' : body.mode === 'casual' ? 'casual' : 'ranked';
+    try {
+      const { getMongoDb } = await import('../database/mongodb/client.js');
+      const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+      const { NotificationRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+      const { SettingsRepository } = await import('../database/mongodb/repositories/settings.repository.js');
+      const db = await getMongoDb();
+      const target = await new UserRepository(db).findByUsername(body.username.trim());
+      if (target === null) throw new ValidationError('Player not found');
+      if (target._id === userId) throw new ValidationError('Cannot challenge yourself');
+      const prefs = await new SettingsRepository(db).get(target._id).catch(() => null);
+      if (prefs !== null && !prefs.allowChallenges) throw new ValidationError('That player is not accepting challenges');
+      const me = await new UserRepository(db).findById(userId).catch(() => null);
+      await new NotificationRepository(db).create({
+        userId: target._id, kind: 'challenge', title: `1v1 from ${me?.username ?? 'player'}`,
+        body: JSON.stringify({ from: userId, fromUsername: me?.username ?? 'player', timeControl, mode }),
+      });
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof ValidationError) throw err;
+      throw new ValidationError('Challenge failed');
+    }
   });
 
   // ── Notifications ────────────────────────────────────
@@ -912,6 +1048,14 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       const ratings = new RatingRepository(db);
       const modes = ['bullet', 'blitz', 'rapid', 'casual'] as const;
       const rows = await Promise.all(modes.map((m) => ratings.get(doc._id, m)));
+      // Profile views: increment + return (best-effort).
+      let views = 0;
+      try {
+        const col = db.collection('users');
+        await col.updateOne({ _id: doc._id as never }, { $inc: { profileViews: 1 } } as never).catch(() => undefined);
+        const fresh = await users.findByUsername(username).catch(() => null);
+        views = (fresh as unknown as { profileViews?: number } | null)?.profileViews ?? 0;
+      } catch { views = 0; }
       const games = await new GameRepository(db).listByUser(doc._id, 50);
       // Privacy: hidden ratings unless the viewer is the owner.
       let viewer: string | null = null;
@@ -951,6 +1095,7 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       return {
         username: doc.username,
         joinedAt: doc.createdAt,
+        views,
         stats: { seatWins, seatGames, streak, streakWon },
         ratings: ratingsVisible ? modes.map((m, i) => ({
           mode: m,
@@ -1295,6 +1440,13 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     return OPENING_BOOK;
   });
 
+  /** @openapi GET /api/v1/nemesis — my counter-strategy profile. */
+  app.get('/api/v1/nemesis', async (req) => {
+    const userId = await requireUserId(req);
+    const { nemesisFor } = await import('../modules/nemesis/service.js');
+    return nemesisFor(userId);
+  });
+
   /** @openapi POST /api/v1/puzzles/daily/attempt — submit a wall. */
   app.post('/api/v1/puzzles/daily/attempt', async (req) => {
     const userId = await requireUserId(req);
@@ -1320,7 +1472,7 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     let actions: { type: 'move'; to: { r: number; c: number } }[] | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } }[] = [];
     let size = 9;
     let wallsPerPlayer = 10;
-    let winnerSeat: 0 | 1 | null = null;
+    let winnerSeat: number | null = null;
     try {
       const g = gamesService.get(gameId);
       actions = g.actions as typeof actions;
@@ -1364,6 +1516,80 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       return { available: false as const, provider: result.provider ?? provider.id, message: result.error ?? 'Coach unavailable' };
     }
     return { available: true as const, provider: result.provider, explanation: result.explanation };
+  });
+
+  /** @openapi POST /api/v1/ai/commentate — live play-by-play for a game. */
+  app.post('/api/v1/ai/commentate', async (req) => {
+    const userId = await requireUserId(req);
+    const body = (req.body ?? {}) as { gameId?: string };
+    if (typeof body.gameId !== 'string') throw new ValidationError('Invalid request');
+    const provider = activeProvider();
+    if (provider === null) {
+      return {
+        available: false as const,
+        message: 'AI commentary is not configured on this deployment.',
+      };
+    }
+    type Ply = { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } };
+    let full: Ply[] = [];
+    let size = 9;
+    let wallsPerPlayer = 10;
+    let status = 'unknown';
+    let winnerSeat: number | null = null;
+    let clockSec: [number, number] = [0, 0];
+    let turn: 0 | 1 = 0;
+    try {
+      const g = gamesService.get(body.gameId);
+      full = g.actions as Ply[];
+      size = g.state.size;
+      wallsPerPlayer = g.state.wallsPerPlayer;
+      status = g.status;
+      winnerSeat = g.winnerSeat;
+      turn = g.state.turn;
+      clockSec = [Math.ceil(g.clock.remainingMs[0] / 1000), Math.ceil(g.clock.remainingMs[1] / 1000)];
+    } catch {
+      const { getMongoDb } = await import('../database/mongodb/client.js');
+      const { ReplayRepository } = await import('../database/mongodb/repositories/replay.repository.js');
+      const db = await getMongoDb();
+      const replay = await new ReplayRepository(db).findByGame(body.gameId);
+      if (replay === null) throw new ValidationError('Game not found');
+      full = (replay.actions ?? []) as Ply[];
+      const initial = replay.initialState as { size?: number; wallsPerPlayer?: number };
+      size = initial.size ?? 9;
+      wallsPerPlayer = initial.wallsPerPlayer ?? 10;
+      status = 'FINISHED';
+      winnerSeat = replay.result?.winnerSeat ?? null;
+    }
+    // Reconstruct current paths from the action list (capped for sanity).
+    let ownPath = -1;
+    let oppPath = -1;
+    try {
+      const rules = await import('../../../engine/typescript/dist/rules/game.js');
+      const bfs = await import('../../../engine/typescript/dist/pathfinding/bfs.js');
+      const { state } = rules.replayGame({ size, wallsPerPlayer }, full.slice(0, 300));
+      ownPath = bfs.findShortestPath(state, 0).length;
+      oppPath = bfs.findShortestPath(state, 1).length;
+      turn = state.turn;
+    } catch {
+      // paths stay unknown; the model is told only what we verified
+    }
+    const recent = full.slice(-8);
+    const lastActions = recent.map((a) => (a.type === 'move' ? `move ${a.to.r},${a.to.c}` : `wall ${a.wall.orientation} ${a.wall.r},${a.wall.c}`));
+    const { commentate } = await import('../modules/ai/complete.js');
+    const result = await commentate(userId, provider.id, {
+      moves: full.length,
+      turn,
+      status,
+      lastActions,
+      ownPath,
+      oppPath,
+      clockSec,
+      winnerSeat,
+    });
+    if (!result.ok) {
+      return { available: false as const, provider: result.provider ?? provider.id, message: result.error ?? 'Commentary unavailable' };
+    }
+    return { available: true as const, provider: result.provider, commentary: result.explanation };
   });
 
   // ── AI (optional providers, graceful when unconfigured) ──

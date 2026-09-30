@@ -145,10 +145,18 @@ export class GamesService {
     return g;
   }
 
+  /** Invite-link TTL for unstarted games (GST-004): stale links expire. */
+  static readonly inviteTtlMs = 24 * 60 * 60 * 1000;
+
   /** Join as the second seat (waiting games only). */
   join(gameId: string, userId: string): GameRecord {
     const g = this.get(gameId);
     if (g.playerIds[0] === userId || g.playerIds[1] === userId) return g;
+    if (g.status === 'waiting' && Date.now() - g.createdAt > GamesService.inviteTtlMs) {
+      g.status = 'aborted';
+      g.updatedAt = Date.now();
+      throw new NotFoundError('Invite expired');
+    }
     if (g.playerIds[1] !== null) throw new ValidationError('Game is full');
     g.playerIds[1] = userId;
     g.status = 'active';

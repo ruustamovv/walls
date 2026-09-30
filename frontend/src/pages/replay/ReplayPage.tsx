@@ -20,6 +20,8 @@ export default function ReplayPage() {
   const [ply, setPly] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  // Seat 0 renders at the bottom by default (same rule as live games).
+  const [flipped, setFlipped] = useState(false);
   useTheme('arena');
 
   // Keyboard: ←/→ step, space toggles play.
@@ -114,15 +116,18 @@ export default function ReplayPage() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }} className="nexus-game-layout">
         <div style={{ maxWidth: 640 }}>
-          <GameBoard
-            state={state}
-            humanSeats={[]}
-            interactive={false}
-            onMove={() => undefined}
-            onWall={() => undefined}
-            lastAction={state.lastAction}
-          />
+          <div style={!flipped ? { transform: 'rotate(180deg)' } : undefined}>
+            <GameBoard
+              state={state}
+              humanSeats={[]}
+              interactive={false}
+              onMove={() => undefined}
+              onWall={() => undefined}
+              lastAction={state.lastAction}
+            />
+          </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+            <Button variant="ghost" onClick={() => setFlipped((f) => !f)} title="Flip board">Flip</Button>
             <Button variant="ghost" onClick={() => setPly(0)}>⏮</Button>
             <Button variant="ghost" onClick={() => { setPlaying(false); setPly((p) => Math.max(0, p - 1)); }}>◀</Button>
             <Button onClick={() => setPlaying((p) => !p)}>{playing ? 'Pause' : 'Play'}</Button>

@@ -15,6 +15,10 @@ export interface UserDoc {
   passwordHash: string;
   role: UserRole;
   status: UserStatus;
+  /** Ephemeral guest account: casual-only, no ranked ratings. */
+  guest: boolean;
+  /** Previous guest username, kept for audit when converted to a full account. */
+  convertedFromGuestId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -66,7 +70,7 @@ export interface RatingHistoryDoc {
 
 export interface GamePlayerSnapshot {
   userId: string;
-  seat: 0 | 1;
+  seat: number;
   usernameAtStart: string;
   ratingAtStart: number;
   clockMs: number;
@@ -74,7 +78,7 @@ export interface GamePlayerSnapshot {
 
 export interface GameDoc {
   _id: string;
-  /** Engine-side game id (g_...) linking the live record; absent on legacy docs. */
+  /** Engine-side game id (g_... / m_...) linking the live record; absent on legacy docs. */
   engineId?: string;
   rulesVersion: string;
   engineVersion: string;
@@ -84,10 +88,14 @@ export interface GameDoc {
   wallCount: number;
   players: GamePlayerSnapshot[];
   status: GameStatus;
-  result?: { winnerSeat: 0 | 1 | null; reason: string };
-  currentTurn: 0 | 1;
+  result?: { winnerSeat: number | null; reason: string };
+  currentTurn: number;
   moveCount: number;
   clocks?: { baseMs: number; incrementMs: number };
+  /** 'duel' for classic 1v1, 'multi' for N-seat free-for-all. */
+  variant?: 'duel' | 'multi';
+  /** Winner-first seat order for multi games. */
+  placement?: number[];
   createdAt: Date;
   startedAt?: Date;
   finishedAt?: Date;
@@ -100,7 +108,7 @@ export interface GameMoveDoc {
   gameId: string;
   sequence: number;
   playerId: string;
-  seat: 0 | 1;
+  seat: number;
   action: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } };
   timestamp: Date;
   serverTimeMs: number;
@@ -121,7 +129,7 @@ export interface ReplayDoc {
   createdAt: Date;
 }
 
-export type TournamentFormat = 'single-elim' | 'round-robin' | 'swiss';
+export type TournamentFormat = 'single-elim' | 'round-robin' | 'swiss' | 'arena';
 
 export interface TournamentDoc {
   _id: string;

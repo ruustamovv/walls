@@ -44,23 +44,33 @@ export async function settleFinishedGame(g: GameRecord): Promise<void> {
     const mode = ratingModeFor(g.timeControlId);
     const ratings = new RatingRepository(db);
     const [aId, bId] = g.playerIds as [string, string];
-    const [ra, rb] = await Promise.all([ratings.get(aId, mode), ratings.get(bId, mode)]);
-    const ga = ra === null ? defaultRating() : { rating: ra.rating, rd: ra.deviation, vol: ra.volatility };
-    const gb = rb === null ? defaultRating() : { rating: rb.rating, rd: rb.deviation, vol: rb.volatility };
-    const scoreA = g.winnerSeat === null ? 0.5 : g.winnerSeat === 0 ? 1 : 0;
-    const scoreB = 1 - scoreA;
-    const na = updateRatings(ga, [{ rating: gb.rating, rd: gb.rd, score: scoreA }]);
-    const nb = updateRatings(gb, [{ rating: ga.rating, rd: ga.rd, score: scoreB }]);
-    await ratings.recordResult({
-      userId: aId, mode, before: ga.rating, after: Math.round(na.rating),
-      rating: Math.round(na.rating), deviation: na.rd, volatility: na.vol,
-      outcome: scoreA === 1 ? 'win' : scoreA === 0 ? 'loss' : 'draw', gameId: g.id,
-    });
-    await ratings.recordResult({
-      userId: bId, mode, before: gb.rating, after: Math.round(nb.rating),
-      rating: Math.round(nb.rating), deviation: nb.rd, volatility: nb.vol,
-      outcome: scoreB === 1 ? 'win' : scoreB === 0 ? 'loss' : 'draw', gameId: g.id,
-    });
+    // Guests never gain (or cost) ratings — any guest presence makes the
+    // game unrated, though replays + result notifications still persist.
+    const { getAuthService } = await import('../auth/service.js');
+    const svc = await getAuthService();
+    const [aGuest, bGuest] = await Promise.all([
+      svc.isGuest(aId).catch(() => false),
+      svc.isGuest(bId).catch(() => false),
+    ]);
+    if (!aGuest && !bGuest) {
+      const [ra, rb] = await Promise.all([ratings.get(aId, mode), ratings.get(bId, mode)]);
+      const ga = ra === null ? defaultRating() : { rating: ra.rating, rd: ra.deviation, vol: ra.volatility };
+      const gb = rb === null ? defaultRating() : { rating: rb.rating, rd: rb.deviation, vol: rb.volatility };
+      const scoreA = g.winnerSeat === null ? 0.5 : g.winnerSeat === 0 ? 1 : 0;
+      const scoreB = 1 - scoreA;
+      const na = updateRatings(ga, [{ rating: gb.rating, rd: gb.rd, score: scoreA }]);
+      const nb = updateRatings(gb, [{ rating: ga.rating, rd: ga.rd, score: scoreB }]);
+      await ratings.recordResult({
+        userId: aId, mode, before: ga.rating, after: Math.round(na.rating),
+        rating: Math.round(na.rating), deviation: na.rd, volatility: na.vol,
+        outcome: scoreA === 1 ? 'win' : scoreA === 0 ? 'loss' : 'draw', gameId: g.id,
+      });
+      await ratings.recordResult({
+        userId: bId, mode, before: gb.rating, after: Math.round(nb.rating),
+        rating: Math.round(nb.rating), deviation: nb.rd, volatility: nb.vol,
+        outcome: scoreB === 1 ? 'win' : scoreB === 0 ? 'loss' : 'draw', gameId: g.id,
+      });
+    }
 
     const { NotificationRepository } = await import('../../database/mongodb/repositories/extended.repositories.js');
     const { SettingsRepository } = await import('../../database/mongodb/repositories/settings.repository.js');

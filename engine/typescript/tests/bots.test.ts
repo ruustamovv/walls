@@ -8,18 +8,44 @@ import assert from 'node:assert/strict';
 import { applyMove, createGame, validateMove } from '../index.js';
 import { evaluateFor } from '../bots/evaluate.js';
 import { BOTS, botAction, getBot } from '../bots/personalities.js';
+import { adaptiveBudgetMs } from '../bots/search.js';
 import { makeState } from './helpers.js';
 
 describe('bots: personalities', () => {
-  it('defines 10 rated bots with sane budgets', () => {
-    assert.equal(BOTS.length, 10);
+  it('defines 19 rated bots covering every target tier', () => {
+    assert.equal(BOTS.length, 19);
     for (const b of BOTS) {
       assert.ok(b.id.length > 0);
-      assert.ok(b.rating >= 400 && b.rating <= 2600);
+      assert.ok(b.rating >= 400 && b.rating <= 3300);
       assert.ok(b.wallCandidates >= 0 && b.budgetMs > 0);
     }
+    for (const tier of [600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000]) {
+      assert.ok(BOTS.some((b) => b.rating === tier && b.experimental !== true), `tier ${tier} present`);
+    }
+    // Only the unproven boss may carry the experimental flag.
+    assert.deepEqual(BOTS.filter((b) => b.experimental === true).map((b) => b.id), ['overmind']);
     assert.equal(getBot('grandmaster')?.name, 'Grandmaster');
+    assert.equal(getBot('apex')?.rating, 3000);
     assert.equal(getBot('nope'), null);
+  });
+
+  it('adaptive budget caps without starving search', () => {
+    assert.equal(adaptiveBudgetMs(2500, {}), 2500);
+    assert.equal(adaptiveBudgetMs(2500, { hardCapMs: 800 }), 800);
+    assert.equal(adaptiveBudgetMs(2500, { clockMsLeft: 5000 }), 200);
+    assert.equal(adaptiveBudgetMs(2500, { clockMsLeft: 500 }), 50);
+    assert.equal(adaptiveBudgetMs(20, { hardCapMs: 800 }), 20);
+    assert.ok(adaptiveBudgetMs(0, {}) >= 1);
+  });
+
+  it('wall-reply lever only affects wall-heavy lines', () => {
+    const mythic = getBot('mythic');
+    const legend = getBot('legend');
+    assert.ok(mythic !== null && legend !== null);
+    assert.equal(mythic.replyWalls, true);
+    assert.notEqual(legend.replyWalls, true);
+    const s = createGame({ size: 9, wallsPerPlayer: 10 });
+    assert.equal(validateMove(s, botAction(mythic, s, 42)).ok, true);
   });
 
   it('every bot returns a legal action on 9x9 and 15x15 openings', () => {

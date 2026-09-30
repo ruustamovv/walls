@@ -20,8 +20,11 @@ import { Server, type Socket } from 'socket.io';
 import { GameActionSchema } from '../../common/validation/schemas.js';
 import { childLogger } from '../../common/logging/logger.js';
 import { gamesService } from '../../modules/games/service.js';
+import { multiGamesService } from '../../modules/multiGames/service.js';
 import { settleFinishedGame } from '../../modules/games/finish.js';
+import { settleMultiGame } from '../../modules/multiGames/finish.js';
 import { persistGameFinished, persistMoveAppended } from '../../modules/games/persistence.js';
+import { persistMultiMoveAppended } from '../../modules/multiGames/persistence.js';
 
 interface JoinPayload {
   gameId: string;
@@ -183,6 +186,17 @@ export function attachGameSocket(httpServer: HttpServer): Server {
             socket.emit('game:error', { message: 'only players can chat here' });
             return;
           }
+          // Guests can read but not send: chat is an anti-abuse surface
+          // (GST-001). Quick-chat presets arrive with CHT-002.
+          try {
+            const { getAuthService } = await import('../../modules/auth/service.js');
+            if (await (await getAuthService()).isGuest(userId)) {
+              socket.emit('game:error', { message: 'guests cannot chat — create an account to talk' });
+              return;
+            }
+          } catch {
+            // guest lookup best-effort; fall through to scope checks
+          }
           // Honor the sender's chat scope (friends-only restricts to friends).
           // Mutes are enforced inside the same best-effort settings lookup.
           try {
@@ -319,6 +333,115 @@ export function attachGameSocket(httpServer: HttpServer): Server {
       } catch (err) {
         const message = err instanceof Error ? err.message : 'reconnect failed';
         socket.emit('game:error', { message });
+      }
+    });
+
+    // ── Multi-seat rooms (m_... game ids, `multi:state` snapshots) ──
+    socket.on('multi:join', (payload: unknown) => {
+      try {
+        const gameId = (payload as Record<string, unknown>)?.['gameId'];
+        if (typeof gameId !== 'string') {
+          socket.emit('game:error', { message: 'gameId required' });
+          return;
+        }
+        try {
+          multiGamesService.join(gameId, userId);
+        } catch {
+          // best-effort (already seated / spectator).
+        }
+        void socket.join(gameId);
+        const g = multiGamesService.get(gameId);
+        socket.emit('multi:state', multiGamesService.snapshot(g));
+      } catch (err) {
+        socket.emit('game:error', { message: err instanceof Error ? err.message : 'join failed' });
+      }
+    });
+
+    const handleMultiAction = (payload: unknown): void => {
+      const obj = (payload as Record<string, unknown>) ?? {};
+      const gameId = obj['gameId'];
+      const parsed = GameActionSchema.safeParse(obj['action'] ?? obj);
+      if (!parsed.success || typeof gameId !== 'string') {
+        socket.emit('game:error', { message: 'invalid action payload' });
+        return;
+      }
+      try {
+        const g = multiGamesService.play(gameId, userId, parsed.data);
+        void persistMultiMoveAppended(g).catch(() => undefined);
+        if (g.status === 'finished' && !g.settled) {
+          void settleMultiGame(g).catch(() => undefined);
+        }
+        io.to(gameId).emit('multi:state', multiGamesService.snapshot(g));
+      } catch (err) {
+        socket.emit('game:error', { message: err instanceof Error ? err.message : 'move rejected' });
+      }
+    };
+
+    socket.on('multi:move', handleMultiAction);
+    socket.on('multi:wall', handleMultiAction);
+
+    socket.on('multi:resign', (payload: unknown) => {
+      try {
+        const gameId = (payload as Record<string, unknown>)?.['gameId'];
+        if (typeof gameId !== 'string') {
+          socket.emit('game:error', { message: 'gameId required' });
+          return;
+        }
+        const g = multiGamesService.resign(gameId, userId);
+        if (!g.settled) {
+          void settleMultiGame(g).catch(() => undefined);
+        }
+        io.to(gameId).emit('multi:state', multiGamesService.snapshot(g));
+      } catch (err) {
+        socket.emit('game:error', { message: err instanceof Error ? err.message : 'resign failed' });
+      }
+    });
+
+    socket.on('multi:chat', (payload: unknown) => {
+      void (async () => {
+        try {
+          const obj = (payload as Record<string, unknown>) ?? {};
+          const gameId = obj['gameId'];
+          const body = obj['body'];
+          if (typeof gameId !== 'string' || typeof body !== 'string') return;
+          const text = body.trim().slice(0, 500);
+          if (text.length === 0) return;
+          const now = Date.now();
+          if (now - lastChatAt < 2000) {
+            socket.emit('game:error', { message: 'chatting too fast — slow down' });
+            return;
+          }
+          lastChatAt = now;
+          const g = multiGamesService.get(gameId);
+          if (!g.playerIds.includes(userId)) {
+            socket.emit('game:error', { message: 'only players can chat here' });
+            return;
+          }
+          try {
+            const { getAuthService } = await import('../../modules/auth/service.js');
+            if (await (await getAuthService()).isGuest(userId)) {
+              socket.emit('game:error', { message: 'guests cannot chat — create an account to talk' });
+              return;
+            }
+          } catch {
+            // guest lookup best-effort
+          }
+          io.to(gameId).emit('multi:chat', { from: userId, body: text, at: now });
+        } catch {
+          // chat never breaks the game connection
+        }
+      })();
+    });
+
+    socket.on('multi:reconnect', (payload: unknown) => {
+      try {
+        const gameId = (payload as Record<string, unknown>)?.['gameId'];
+        if (typeof gameId !== 'string') return;
+        void socket.join(gameId);
+        const g = multiGamesService.get(gameId);
+        socket.emit('multi:state', multiGamesService.snapshot(g));
+      } catch (err) {
+        socket.emit('game:error', { message: err instanceof Error ? err.message : 'reconnect failed' });
       }
     });
   });

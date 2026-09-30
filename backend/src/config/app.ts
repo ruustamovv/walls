@@ -45,7 +45,7 @@ function readBudget(): number {
 
 export const appConfig: AppConfig = {
   // Provisional codename until real brand/domain lands.
-  siteName: 'PROJECT_NEXUS',
+  siteName: 'Quoridor',
   siteNameProvisional: true,
   matchmaking: {
     initialWindow: 100,

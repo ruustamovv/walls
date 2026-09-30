@@ -18,6 +18,18 @@ export interface UserStore {
   findById(id: string): Promise<UserRecord | null>;
   /** Find by verified email, else create (OAuth linking). */
   findOrCreate(input: { email: string; username: string; passwordHash: string }): Promise<UserRecord>;
+  /** Ephemeral guest account (unusable password, casual-only). */
+  createGuest(): Promise<UserRecord>;
+  /** Upgrade a guest document in place; identity (id) is preserved. */
+  convertGuest(guestId: string, input: { email: string; username: string; passwordHash: string }): Promise<UserRecord>;
+}
+
+function guestIdentity(): { email: string; username: string } {
+  const g = globalThis.crypto;
+  const hex = typeof g?.randomUUID === 'function'
+    ? g.randomUUID().replace(/-/g, '').slice(0, 6)
+    : Math.random().toString(36).slice(2, 8);
+  return { email: `guest_${hex}@guests.local`, username: `Guest_${hex}` };
 }
 
 function toRecord(doc: UserDoc): UserRecord {
@@ -27,6 +39,7 @@ function toRecord(doc: UserDoc): UserRecord {
     username: doc.username,
     passwordHash: doc.passwordHash,
     role: doc.role === 'OWNER' || doc.role === 'ADMIN' ? 'admin' : doc.role === 'MODERATOR' ? 'moderator' : 'user',
+    guest: doc.guest === true,
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.getTime() : Date.now(),
   };
 }
@@ -44,7 +57,7 @@ export class MemoryUserStore implements UserStore {
     const g = globalThis.crypto;
     const tail = typeof g?.randomUUID === 'function' ? g.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const user: UserRecord = {
-      id: `u_${tail}`, email, username, passwordHash: input.passwordHash, role: 'user', createdAt: Date.now(),
+      id: `u_${tail}`, email, username, passwordHash: input.passwordHash, role: 'user', guest: false, createdAt: Date.now(),
     };
     this.byId.set(user.id, user);
     this.idByEmail.set(email, user.id);
@@ -60,6 +73,36 @@ export class MemoryUserStore implements UserStore {
 
   async findById(id: string): Promise<UserRecord | null> {
     return this.byId.get(id) ?? null;
+  }
+
+  async createGuest(): Promise<UserRecord> {
+    const g = globalThis.crypto;
+    const tail = typeof g?.randomUUID === 'function' ? g.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const idn = guestIdentity();
+    const user: UserRecord = {
+      id: `g_${tail}`, email: idn.email, username: idn.username,
+      passwordHash: '!', role: 'user', guest: true, createdAt: Date.now(),
+    };
+    this.byId.set(user.id, user);
+    this.idByEmail.set(user.email, user.id);
+    this.idByUsername.set(user.username.toLowerCase(), user.id);
+    return user;
+  }
+
+  async convertGuest(guestId: string, input: { email: string; username: string; passwordHash: string }): Promise<UserRecord> {
+    const cur = this.byId.get(guestId);
+    if (cur === undefined || !cur.guest) throw new ConflictError('Guest session not found');
+    const email = input.email.trim().toLowerCase();
+    const username = input.username.trim();
+    if (this.idByEmail.has(email)) throw new ConflictError('Email already registered');
+    if (this.idByUsername.has(username.toLowerCase())) throw new ConflictError('Username taken');
+    this.idByEmail.delete(cur.email);
+    this.idByUsername.delete(cur.username.toLowerCase());
+    const upgraded: UserRecord = { ...cur, email, username, passwordHash: input.passwordHash, guest: false };
+    this.byId.set(guestId, upgraded);
+    this.idByEmail.set(email, guestId);
+    this.idByUsername.set(username.toLowerCase(), guestId);
+    return upgraded;
   }
 
   async findOrCreate(input: { email: string; username: string; passwordHash: string }): Promise<UserRecord> {
@@ -117,6 +160,41 @@ export class MongoUserStore implements UserStore {
     if (!/^[0-9a-fA-F]{24}$/.test(id)) return null;
     const doc = await this.repo.findById(id).catch(() => null);
     return doc === null ? null : toRecord(doc);
+  }
+
+  async createGuest(): Promise<UserRecord> {
+    const idn = guestIdentity();
+    // Retry on the (unlikely) username collision from random hex.
+    for (let n = 0; n < 5; n++) {
+      try {
+        const doc = await this.repo.create({
+          email: n === 0 ? idn.email : `guest_${idn.email}`,
+          username: n === 0 ? idn.username : `${idn.username}${n}`,
+          passwordHash: '!',
+          guest: true,
+        });
+        return toRecord(doc);
+      } catch (err) {
+        if (!(err instanceof UserConflictError)) throw err;
+      }
+    }
+    throw new ConflictError('Could not allocate a guest identity');
+  }
+
+  async convertGuest(guestId: string, input: { email: string; username: string; passwordHash: string }): Promise<UserRecord> {
+    try {
+      const doc = await this.repo.convertGuest(guestId, {
+        email: input.email.trim().toLowerCase(),
+        username: input.username.trim(),
+        passwordHash: input.passwordHash,
+      });
+      return toRecord(doc);
+    } catch (err) {
+      if (err instanceof UserConflictError) {
+        throw new ConflictError(err.field === 'email' ? 'Email already registered' : 'Username taken');
+      }
+      throw err;
+    }
   }
 
   async findOrCreate(input: { email: string; username: string; passwordHash: string }): Promise<UserRecord> {

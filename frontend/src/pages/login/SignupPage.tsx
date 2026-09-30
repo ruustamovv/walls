@@ -42,6 +42,11 @@ export default function SignupPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!terms) return;
+    // Guests convert in place (same id → history preserved); others register.
+    if (session.user?.guest === true) {
+      if (await session.convertGuest(email, username, password)) navigate(next);
+      return;
+    }
     if (await session.register(email, username, password)) navigate(next);
   }
 
@@ -65,7 +70,12 @@ export default function SignupPage() {
         </p>
       </div>
       <Card>
-        <h2 className="font-display" style={{ margin: '0 0 12px' }}>Create your account</h2>
+        <h2 className="font-display" style={{ margin: '0 0 12px' }}>{session.user?.guest === true ? 'Keep your progress' : 'Create your account'}</h2>
+        {session.user?.guest === true && (
+          <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 12px' }}>
+            You're playing as {session.user.username}. Register now and your games carry over — same identity, no lost progress.
+          </p>
+        )}
         <form onSubmit={submit}>
           <label style={{ display: 'block', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
             <span style={{ display: 'block', marginBottom: 6 }}>Email</span>

@@ -36,10 +36,10 @@ export interface SessionUser {
   email: string;
   username: string;
   role: string;
+  guest: boolean;
 }
 
-export interface GameSnapshot {
-  id: string;
+export interface GameSnapshot {  id: string;
   status: 'waiting' | 'active' | 'finished' | 'aborted';
   state: {
     size: number;
@@ -69,12 +69,49 @@ export interface GameSnapshot {
   updatedAt: number;
 }
 
+export interface MultiSnapshot {
+  id: string;
+  status: 'waiting' | 'active' | 'finished' | 'aborted';
+  state: {
+    size: number;
+    wallsPerPlayer: number;
+    players: number;
+    sides: string[];
+    turn: number;
+    pawns: { r: number; c: number }[];
+    walls: { r: number; c: number; orientation: 'h' | 'v' }[];
+    wallsRemaining: number[];
+    isOver: boolean;
+    winner: number | null;
+    moveNumber: number;
+    lastAction: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } } | null;
+    rulesVersion: string;
+  };
+  seats: (string | null)[];
+  clockMs: number[];
+  incrementMs: number;
+  turn: number;
+  isOver: boolean;
+  winnerSeat: number | null;
+  placement: number[];
+  finishReason: 'goal' | 'timeout' | 'resign' | null;
+  moveCount: number;
+  timeControlId: string;
+  mode: string;
+  players: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export const api = {
   me: () => req<{ user: SessionUser }>('/api/v1/auth/me'),
   register: (input: { email: string; username: string; password: string }) =>
     req<{ user: SessionUser }>('/api/v1/auth/register', { method: 'POST', body: JSON.stringify(input) }),
   login: (input: { login: string; password: string }) =>
     req<{ user: SessionUser }>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(input) }),
+  guest: () => req<{ user: SessionUser }>('/api/v1/auth/guest', { method: 'POST' }),
+  convert: (input: { email: string; username: string; password: string }) =>
+    req<{ user: SessionUser }>('/api/v1/auth/convert', { method: 'POST', body: JSON.stringify(input) }),
   logout: () => req<{ ok: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
   forgot: (email: string) => req<{ ok: boolean; message: string }>('/api/v1/auth/forgot', { method: 'POST', body: JSON.stringify({ email }) }),
   reset: (token: string, password: string) => req<{ ok: boolean }>('/api/v1/auth/reset', { method: 'POST', body: JSON.stringify({ token, password }) }),
@@ -101,6 +138,7 @@ export const api = {
   profile: (username: string) => req<{
     username: string;
     joinedAt?: string;
+    views?: number;
     stats?: { seatWins: [number, number]; seatGames: [number, number]; streak: number; streakWon: boolean };
     ratings: { mode: string; rating: number; peak: number; games: number; wins: number; losses: number }[];
     recentGames: { id: string; mode: string; timeControl: string; status: string; result: { winnerSeat: 0 | 1 | null; reason: string } | null; createdAt: string }[];
@@ -251,6 +289,18 @@ export const api = {
     games: number;
     openings: { line: string; games: number; whiteWinPct: number }[];
   }>('/api/v1/learn/openings'),
+  nemesis: () => req<{
+    games: number;
+    flaws: { wallWaste: number; pathErrors: number; passive: number; missedChokes: number };
+    explanation: string;
+    weights: { pathAdvantage: number; wallAdvantage: number; mobility: number };
+    wallCandidates: number;
+    noise: number;
+    wallBias: number;
+    replySearch: boolean;
+    budgetMs: number;
+    baseName: string;
+  }>('/api/v1/nemesis'),
   trainingMine: () => req<{
     puzzles: {
       puzzleId: string;
@@ -302,7 +352,7 @@ export const api = {
     tournaments: { _id: string; title: string; status: string; format: string; timeControl: string }[];
   }>('/api/v1/tournaments'),
   tournament: (id: string) => req<{
-    tournament: { _id: string; title: string; status: string; format: string; timeControl: string; ownerId?: string; champion?: string | null };
+    tournament: { _id: string; title: string; status: string; format: string; timeControl: string; ownerId?: string; champion?: string | null; endAt?: string };
     players: { id: string; username: string | null }[];
     rounds: { round: number; matches: { a: string | null; b: string | null; winner: string | null }[] }[];
     standings: { userId: string; username: string | null; wins: number; losses: number; points: number }[];
@@ -317,13 +367,23 @@ export const api = {
     `/api/v1/tournaments/${encodeURIComponent(id)}/report`,
     { method: 'POST', body: JSON.stringify({ round, matchIndex, winnerId }) },
   ),
+  tournamentArena: (id: string) => req<{ status: 'waiting' } | { status: 'matched'; gameId: string }>(
+    `/api/v1/tournaments/${encodeURIComponent(id)}/arena-play`, { method: 'POST' },
+  ),
+  tournamentFinish: (id: string) => req<{ ok: boolean }>(
+    `/api/v1/tournaments/${encodeURIComponent(id)}/finish`, { method: 'POST' },
+  ),
 
   premium: () => req<{
     tier: 'free' | 'premium';
     entitlements: string[];
     payments: 'disabled';
     reason: string;
+    freePreview?: boolean;
   }>('/api/v1/premium/status'),
+  challenge: (username: string, timeControl = '3+1', mode = 'ranked') => req<{ ok: boolean }>(
+    '/api/v1/challenges', { method: 'POST', body: JSON.stringify({ username, timeControl, mode }) },
+  ),
 
   adminOverview: () => req<{
     users: number; games: { total: number; liveInMemory: number }; ratings: number; replays: number;
@@ -408,6 +468,7 @@ export const api = {
       best: string;
     }[];
     evalCurve: number[];
+    winCurve?: number[];
     size: number;
     wallsPerPlayer: number;
     summary: {
@@ -418,9 +479,29 @@ export const api = {
       missedChokes: [number, number];
       score: [number, number];
       accuracy: [number, number];
+      classCounts?: Record<string, number>[];
     };
   }>(`/api/v1/games/${encodeURIComponent(gameId)}/review`),
   coachSummary: (gameId: string) => req<{ available: boolean; provider?: string; explanation?: string; message?: string }>(
     `/api/v1/ai/coach-summary/${encodeURIComponent(gameId)}`,
   ),
+  commentate: (gameId: string) => req<{ available: boolean; provider?: string; commentary?: string; message?: string }>(
+    '/api/v1/ai/commentate', { method: 'POST', body: JSON.stringify({ gameId }) },
+  ),
+
+  multiCreate: (input: { players?: number; boardSize?: number; wallsPerPlayer?: number; timeControl?: string }) =>
+    req<MultiSnapshot>('/api/v1/multi/games', { method: 'POST', body: JSON.stringify(input) }),
+  multiGame: (id: string) => req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}`),
+  multiJoin: (id: string) => req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}/join`, { method: 'POST' }),
+  multiMove: (id: string, action: unknown) =>
+    req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}/move`, { method: 'POST', body: JSON.stringify(action) }),
+  multiResign: (id: string) => req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}/resign`, { method: 'POST' }),
+  multiMeta: (id: string) => req<{
+    players: ({ id: string; username: string } | null)[];
+  }>(`/api/v1/multi/games/${encodeURIComponent(id)}/meta`),
+  multiLive: () => req<{ games: { id: string; players: number; timeControl: string; moveCount: number }[] }>('/api/v1/multi/games/live'),
+  multiMmJoin: (input: { players?: number; timeControl?: string }) =>
+    req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/multi/join', { method: 'POST', body: JSON.stringify(input) }),
+  multiMmStatus: () => req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/multi/status'),
+  multiMmCancel: () => req<{ ok: boolean }>('/api/v1/matchmaking/multi/cancel', { method: 'POST' }),
 };

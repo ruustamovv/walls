@@ -21,9 +21,12 @@ export interface ResultModalProps {
   won?: boolean;
   /** Rating line, e.g. "blitz 1650 (+12)". */
   ratingLine?: string | null;
+  /** Show the guest upgrade nudge ("create account to save progress"). */
+  guestNudge?: boolean;
+  onRegister?: () => void;
 }
 
-export default function ResultModal({ winnerSeat, reason, perspective, moveCount, durationSec, onRematch, onReview, onNewGame, onHome, title, won: wonProp, ratingLine }: ResultModalProps) {
+export default function ResultModal({ winnerSeat, reason, perspective, moveCount, durationSec, onRematch, onReview, onNewGame, onHome, title, won: wonProp, ratingLine, guestNudge, onRegister }: ResultModalProps) {
   const won = wonProp ?? (perspective !== null && winnerSeat === perspective);
   return (
     <div role="dialog" aria-modal="true" aria-label="game result" style={{
@@ -54,6 +57,14 @@ export default function ResultModal({ winnerSeat, reason, perspective, moveCount
           <Button variant="ghost" onClick={onNewGame}>New game</Button>
           <Button variant="subtle" onClick={onHome}>Home</Button>
         </div>
+        {guestNudge === true && (
+          <p style={{ margin: '14px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+            Playing as guest — progress isn't saved.{' '}
+            {onRegister !== undefined
+              ? <button onClick={onRegister} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', fontWeight: 700, fontSize: 13 }}>Create an account</button>
+              : 'Create an account to keep it.'}
+          </p>
+        )}
       </div>
     </div>
   );

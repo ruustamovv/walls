@@ -39,10 +39,11 @@ async function seedOrder(userIds: string[]): Promise<string[]> {
 
 export async function createTournament(ownerId: string, input: {
   title: string; format?: TournamentDoc['format']; timeControl?: string; mode?: string; rounds?: number; playersCap?: number;
+  durationMinutes?: number;
 }): Promise<TournamentDoc> {
   const title = input.title.trim().slice(0, 80);
   if (title.length < 3) throw new Error('title too short');
-  if (input.format !== undefined && !['single-elim', 'round-robin', 'swiss'].includes(input.format)) {
+  if (input.format !== undefined && !['single-elim', 'round-robin', 'swiss', 'arena'].includes(input.format)) {
     throw new Error('unknown format');
   }
   const doc = await (await repo()).create({
@@ -53,6 +54,9 @@ export async function createTournament(ownerId: string, input: {
     rounds: input.rounds,
     playersCap: input.playersCap,
     ownerId,
+    ...(input.durationMinutes !== undefined && input.durationMinutes > 0
+      ? { endAt: new Date(Date.now() + Math.min(input.durationMinutes, 24 * 60) * 60000) }
+      : {}),
   });
   await (await repo()).addPlayer(doc._id, ownerId);
   return doc;
@@ -84,6 +88,11 @@ export async function startTournament(tournamentId: string): Promise<void> {
   if (players.length < 2) throw new Error('need at least 2 players');
   const seeded = await seedOrder(players);
   const format = t.format ?? 'single-elim';
+  if (format === 'arena') {
+    // Arenas pair on demand while live; nothing to seed up front.
+    await r.setStatus(tournamentId, 'LIVE');
+    return;
+  }
   if (format === 'single-elim') {
     const pairs = pairSingleElim(seeded);
     await r.saveRound(tournamentId, 1, pairs.map(([a, b]) => ({
@@ -157,6 +166,12 @@ async function advanceIfComplete(tournamentId: string): Promise<void> {
     return;
   }
 
+  if (format === 'arena') {
+    // Arenas never auto-advance: points accumulate until the owner (or the
+    // deadline) calls finishTournament.
+    return;
+  }
+
   // Swiss: next round by points, or champion after `rounds` rounds.
   const table = await standings(tournamentId);
   if (latest.round >= (t.rounds || 4)) {
@@ -204,6 +219,60 @@ export async function standings(tournamentId: string): Promise<StandingRow[]> {
     }
   }
   return [...table.values()].sort((a, b) => b.points - a.points || b.wins - a.wins || (a.userId < b.userId ? -1 : 1));
+}
+
+/**
+ * Arena pairing pool (in-process; Redis-backed matchmaking stays the
+ * production path for rated play). Waiting players pair instantly into a
+ * live game whose result is reportable in the current arena round.
+ */
+const arenaPools = new Map<string, string[]>();
+
+export async function arenaPlay(tournamentId: string, userId: string): Promise<{ status: 'waiting' } | { status: 'matched'; gameId: string }> {
+  const r = await repo();
+  const t = await r.findById(tournamentId);
+  if (t === null) throw new Error('tournament not found');
+  if ((t.format ?? 'single-elim') !== 'arena') throw new Error('not an arena tournament');
+  if (t.status !== 'LIVE') throw new Error('arena is not live');
+  if (t.endAt !== undefined && t.endAt.getTime() <= Date.now()) throw new Error('arena has ended');
+  const players = (await r.listPlayers(tournamentId)).map((p) => p.userId);
+  if (!players.includes(userId)) throw new Error('join the arena first');
+  const pool = arenaPools.get(tournamentId) ?? [];
+  const waiting = pool.filter((id) => id !== userId);
+  if (waiting.length === 0) {
+    arenaPools.set(tournamentId, [...pool.filter((id) => id !== userId), userId]);
+    return { status: 'waiting' };
+  }
+  const opponent = waiting[0] as string;
+  arenaPools.set(tournamentId, pool.filter((id) => id !== userId && id !== opponent));
+  const { gamesService } = await import('../games/service.js');
+  const { persistGameCreated } = await import('../games/persistence.js');
+  const { ratingModeFor } = await import('../games/finish.js');
+  const g = gamesService.create({
+    creatorId: opponent,
+    opponentId: userId,
+    timeControl: t.timeControl,
+    mode: 'arena',
+    boardSize: 9,
+    wallsPerPlayer: 10,
+  });
+  await persistGameCreated(g, ratingModeFor(g.timeControlId)).catch(() => undefined);
+  // File the pairing into the running arena round (created on demand).
+  const rounds = await r.listRounds(tournamentId);
+  const open = rounds.length;
+  await r.saveRound(tournamentId, open + 1, [{ a: opponent, b: userId, winner: null, gameId: g.id }]);
+  return { status: 'matched', gameId: g.id };
+}
+
+export async function finishTournament(tournamentId: string, userId: string): Promise<void> {
+  const r = await repo();
+  const t = await r.findById(tournamentId);
+  if (t === null) throw new Error('tournament not found');
+  if (t.ownerId !== userId) throw new Error('only the organizer can finish');
+  if (t.status !== 'LIVE') throw new Error('tournament is not live');
+  const table = await standings(tournamentId);
+  await r.setChampion(tournamentId, table[0]?.userId ?? null);
+  arenaPools.delete(tournamentId);
 }
 
 export async function tournamentDetail(tournamentId: string): Promise<{

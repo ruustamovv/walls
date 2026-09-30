@@ -1,29 +1,26 @@
 /**
- * Brand identity — the single swap point for the final name.
- *
- * Provisional wordmark: NEXUS + wall-notch glyph (two pawn squares cut by
- * crossing walls). Final legal/registrar-cleared name replaces APP_NAME only;
- * every component reads from here. Domain status: UNVERIFIED (see
- * docs/branding/BRAND_CANDIDATES.md) — no availability is claimed.
+ * Brand identity — Quoridor (quoridor.uz).
+ * Single swap point for name/domain.
  */
 export const BRAND = {
-  APP_NAME: 'PROJECT_NEXUS',
-  APP_SHORT_NAME: 'NEXUS',
-  APP_DESCRIPTION: 'Move or build a wall. Outmaneuver your rival in the original wall-and-pawn strategy arena.',
-  TAGLINE: 'Build your path. Block theirs.',
-  PROVISIONAL: true,
+  APP_NAME: 'Quoridor',
+  APP_SHORT_NAME: 'Quoridor',
+  APP_DESCRIPTION: 'Outmaneuver your rival in the wall-and-pawn arena.',
+  TAGLINE: 'Build walls. Find path.',
+  PROVISIONAL: false,
+  DOMAIN: 'quoridor.uz',
 } as const;
 
-/** Wall-notch glyph geometry (32×32 viewBox), shared by logo + favicon. */
+/** Quoridor grid glyph (32×32): 3x3 cells + wall + pawn. */
 export const GLYPH = {
   viewBox: '0 0 32 32',
   pawns: [
-    { x: 4, y: 4, fill: 'var(--player-a)' },
-    { x: 18, y: 18, fill: 'var(--player-b)' },
+    { x: 5, y: 5, fill: 'var(--player-a)' },
+    { x: 19, y: 19, fill: 'var(--player-b)' },
   ],
   walls: [
-    { x: 14, y: 6, w: 12, h: 4 },
-    { x: 6, y: 14, w: 4, h: 12 },
+    { x: 14, y: 4, w: 13, h: 4.5 },
+    { x: 4, y: 14, w: 4.5, h: 13 },
   ],
 } as const;
 

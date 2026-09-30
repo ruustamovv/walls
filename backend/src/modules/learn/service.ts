@@ -9,12 +9,11 @@
 import {
   applyMove,
   chooseBotAction,
-  createGame,
   findShortestPath,
   validateMove,
 } from '../../../../engine/typescript/dist/index.js';
 import { getMongoDb } from '../../database/mongodb/client.js';
-import { CURRICULUM, findStep, type LessonStep } from './curriculum.js';
+import { CURRICULUM, type LessonStep } from './curriculum.js';
 import type { Action, GameState } from '../../../../engine/typescript/dist/core/types.js';
 
 function toState(step: LessonStep): GameState {

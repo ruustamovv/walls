@@ -10,7 +10,7 @@ export function exportGame(gameId: string, payload: unknown): void {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `nexus-game-${gameId.slice(0, 8)}.nxn.json`;
+    a.download = `quoridor-game-${gameId.slice(0, 8)}.json`;
     document.body.appendChild(a);
     a.click();
     a.remove();

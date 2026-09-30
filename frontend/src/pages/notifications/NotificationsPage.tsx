@@ -2,9 +2,9 @@
  * Inbox: matches, results, friend requests, club news. Newest first.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { Badge, Card, EmptyState, Spinner } from '../../components/ui/primitives.js';
+import { Badge, Button, Card, EmptyState, Spinner } from '../../components/ui/primitives.js';
 import { useSession } from '../../stores/session.js';
 
 type Item = Awaited<ReturnType<typeof api.notifications>>['notifications'][number];
@@ -18,6 +18,7 @@ function target(item: Item): string | null {
 
 export default function NotificationsPage() {
   const { user } = useSession();
+  const navigate = useNavigate();
   const [items, setItems] = useState<Item[] | null>(null);
 
   const load = useCallback(() => {
@@ -26,6 +27,18 @@ export default function NotificationsPage() {
       .catch(() => setItems([]));
   }, []);
   useEffect(() => { if (user !== null) load(); }, [user, load]);
+
+  async function acceptChallenge(n: Item) {
+    try {
+      const payload = JSON.parse(n.body ?? '{}') as { from?: string; timeControl?: string; mode?: string };
+      const g = await api.createGame({
+        timeControl: payload.timeControl ?? '3+1',
+        ...(payload.from !== undefined ? { opponentId: payload.from } : {}),
+      });
+      await api.notificationRead(n._id).catch(() => undefined);
+      navigate(`/game/${g.id}`);
+    } catch { /* keep inbox */ }
+  }
 
   if (user === null) {
     return <EmptyState title="No inbox yet" body="Log in to receive match and social updates." action={<Link to="/login?next=/notifications">Log in</Link>} />;
@@ -55,6 +68,7 @@ export default function NotificationsPage() {
                     <div style={{ color: 'var(--muted)', fontSize: 12 }}>{new Date(n.createdAt).toLocaleString()}</div>
                   </div>
                   <Badge tone="neutral">{n.kind.replace(/_/g, ' ')}</Badge>
+                  {n.kind === 'challenge' && <Button size="sm" onClick={() => void acceptChallenge(n)}>Accept 1v1</Button>}
                   {to !== null && <Link to={to} style={{ fontSize: 13 }} onClick={() => { void api.notificationRead(n._id).catch(() => undefined); }}>Open</Link>}
                 </li>
               );

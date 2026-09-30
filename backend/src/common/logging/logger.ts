@@ -5,7 +5,7 @@ const level = process.env['LOG_LEVEL'] ?? 'info';
 
 export const logger: PinoLogger = pino({
   level: level === 'debug' || level === 'info' || level === 'warn' || level === 'error' ? level : 'info',
-  base: { service: 'nexus-backend' },
+  base: { service: 'quoridor-backend' },
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 

@@ -45,7 +45,7 @@ function Toggle({ on, onFlip, label }: { on: boolean; onFlip: () => void; label:
 
 const THEMES: ThemeChoice[] = ['auto', 'site', 'arena'];
 
-const BOARD_THEMES: BoardTheme[] = ['midnight', 'paper', 'ember'];
+  const BOARD_THEMES: BoardTheme[] = ['midnight', 'paper', 'ember', 'quoridor'];
 const PAWN_SETS: PawnSet[] = ['classic', 'ring'];
 
 export default function SettingsPage() {

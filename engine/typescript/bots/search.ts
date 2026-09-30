@@ -24,6 +24,12 @@ export interface SearchOptions {
   wallBias: number;
   /** When true, answer the top moves with the opponent's best reply. */
   replySearch: boolean;
+  /**
+   * When true, wall candidates are ALSO answered with the opponent's best
+   * reply (stronger but slower). Top-tier-only lever: it punishes walls
+   * the opponent immediately exploits.
+   */
+  replyWalls?: boolean;
   /** Hard time budget in ms (best-effort checks between candidates). */
   budgetMs: number;
   /** Seed for the deterministic noise stream. */
@@ -48,18 +54,42 @@ export interface ScoredAction {
 }
 
 /**
+ * Adaptive budget (BOT-003): shrink search to fit reality.
+ * - Clock-aware: never spend more than ~1/25 of remaining time, so a bot
+ *   cannot burn its own flag (min 50ms so it still thinks).
+ * - Environment cap: browser drivers pass hardCapMs to keep the UI fluid;
+ *   the calibration CLI passes none and uses full budgets.
+ * Always returns at least 1ms; chooseBotAction returns best-completed.
+ */
+export function adaptiveBudgetMs(
+  budgetMs: number,
+  opts: { clockMsLeft?: number; hardCapMs?: number } = {},
+): number {
+  let out = Math.max(1, Math.floor(budgetMs));
+  if (opts.hardCapMs !== undefined) out = Math.min(out, Math.max(1, Math.floor(opts.hardCapMs)));
+  if (opts.clockMsLeft !== undefined && Number.isFinite(opts.clockMsLeft)) {
+    out = Math.min(out, Math.max(50, Math.floor(opts.clockMsLeft / 25)));
+  }
+  return out;
+}
+
+/**
  * Rank every wall by how much it hurts the player to move.
  * Cheaper than a full search and focuses wall candidates on choke points:
  * walls that lengthen the opponent's shortest path most come first.
  */
-function rankWalls(state: GameState, player: PlayerIndex, walls: Wall[], rng: () => number, cap: number): Wall[] {
-  const scored = walls.map((wall) => {
+function rankWalls(state: GameState, player: PlayerIndex, walls: Wall[], rng: () => number, cap: number, deadline: number): Wall[] {
+  const scored: { wall: Wall; gain: number }[] = [];
+  for (const wall of walls) {
+    // Deadline-aware: ranking hundreds of walls on big boards must also
+    // yield early — keep best-so-far instead of blocking (BOT-003).
+    if (Date.now() > deadline) break;
     const next = applyMove(state, { type: 'wall', wall }).state;
     // Opponent-path gain minus own-path cost: efficient walls only.
     const before = evaluateFor(state, player, { pathAdvantage: 1, wallAdvantage: 0, mobility: 0 });
     const after = evaluateFor(next, player, { pathAdvantage: 1, wallAdvantage: 0, mobility: 0 });
-    return { wall, gain: after - before + rng() * 1e-6 };
-  });
+    scored.push({ wall, gain: after - before + rng() * 1e-6 });
+  }
   scored.sort((a, b) => b.gain - a.gain);
   return scored.slice(0, Math.max(0, cap)).map((s) => s.wall);
 }
@@ -86,8 +116,9 @@ export function chooseBotAction(state: GameState, opts: SearchOptions): ScoredAc
   const consider = (action: Action, wallBoost: number): void => {
     const next = applyMove(state, action).state;
     let score = evaluateFor(next, player, opts.weights) + rng() * opts.noise + wallBoost;
-    if (opts.replySearch && action.type === 'move' && !next.isOver && Date.now() <= deadline) {
-      // Penalize moves that let the opponent reply strongly.
+    const answered = action.type === 'move' || opts.replyWalls === true;
+    if (opts.replySearch && answered && !next.isOver && Date.now() <= deadline) {
+      // Penalize actions that let the opponent reply strongly.
       score -= opponentBestReply(next, opts.weights, opts.budgetMs, deadline) * 0.5;
     }
     if (best === null || score > best.score) best = { action, score };
@@ -100,7 +131,7 @@ export function chooseBotAction(state: GameState, opts: SearchOptions): ScoredAc
 
   if (state.wallsRemaining[player] > 0 && Date.now() <= deadline) {
     const walls = getLegalWalls(state, player);
-    const shortlist = rankWalls(state, player, walls, rng, opts.wallCandidates);
+    const shortlist = rankWalls(state, player, walls, rng, opts.wallCandidates, deadline);
     // wallBias > 1 rewards spending walls; express as a score bonus.
     const boost = (opts.wallBias - 1) * 4;
     for (const wall of shortlist) {

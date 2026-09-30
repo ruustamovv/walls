@@ -1,8 +1,8 @@
 {
-  "name": "project-nexus",
+  "name": "quoridor",
   "private": true,
-  "version": "0.1.0",
-  "description": "PROJECT_NEXUS — original competitive wall-and-pawn strategy platform (dev codename)",
+  "version": "0.2.0",
+  "description": "Quoridor — wall-and-pawn strategy platform (quoridor.uz)",
   "packageManager": "pnpm@12.6.0",
   "engines": {
     "node": ">=20"

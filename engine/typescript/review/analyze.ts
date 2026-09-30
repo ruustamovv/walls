@@ -8,6 +8,7 @@
  */
 import { applyMove, createGame, getLegalMoves } from '../rules/game.js';
 import { findShortestPath, getPathMetrics } from '../pathfinding/bfs.js';
+import { winChanceCurve } from '../eval/winChance.js';
 import { chooseBotAction } from '../bots/search.js';
 import { BALANCED_WEIGHTS } from '../bots/evaluate.js';
 import type { Action, GameConfig, GameState, PlayerIndex } from '../core/types.js';
@@ -23,11 +24,14 @@ export type ReviewLabel =
 /** Overall move classification (chess.com-style, engine-measured). */
 export type MoveClass =
   | 'BRILLIANT'
+  | 'GREAT'
   | 'BEST'
   | 'EXCELLENT'
   | 'GOOD'
+  | 'BOOK'
   | 'INACCURACY'
   | 'MISTAKE'
+  | 'MISS'
   | 'BLUNDER';
 
 export interface ReviewedMove {
@@ -49,6 +53,8 @@ export interface GameReview {
   moves: ReviewedMove[];
   /** Route-differential curve (P1 path − P0 path) after every ply. */
   evalCurve: number[];
+  /** Win% per ply from seat-0 perspective (0-100). Own engine. */
+  winCurve: number[];
   summary: {
     greatWalls: [number, number];
     wallBlunders: [number, number];
@@ -80,16 +86,19 @@ export function parseBestAction(best: string): Action | null {
 
 const CLASS_SCORE: Record<MoveClass, number> = {
   BRILLIANT: 2,
+  GREAT: 1.8,
   BEST: 2,
   EXCELLENT: 1.5,
   GOOD: 1,
+  BOOK: 1.2,
   INACCURACY: 0.5,
   MISTAKE: -1,
+  MISS: -1.2,
   BLUNDER: -2,
 };
 
 function emptyClassCounts(): { [K in MoveClass]: number } {
-  return { BRILLIANT: 0, BEST: 0, EXCELLENT: 0, GOOD: 0, INACCURACY: 0, MISTAKE: 0, BLUNDER: 0 };
+  return { BRILLIANT: 0, GREAT: 0, BEST: 0, EXCELLENT: 0, GOOD: 0, BOOK: 0, INACCURACY: 0, MISTAKE: 0, MISS: 0, BLUNDER: 0 };
 }
 
 function pathLen(state: GameState, player: PlayerIndex): number {
@@ -176,12 +185,20 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
     }
 
     // Overall classification: total route-steps conceded vs the reference.
+    // chess.com-style: Brilliant (sacrifice/game-winning), Great (only good / game-changing),
+    // Best, Excellent, Good, Book (opening), Inaccuracy, Mistake, Miss, Blunder.
     const totalDiff = (ownAfter - bestOwnAfter) + (bestOppAfter - oppAfter);
+    const gain = oppAfter - oppBefore;
+    const isOpening = seq < 4;
     let cls: MoveClass;
     if (labels.includes('CLUTCH') || labels.includes('GREAT_WALL')) cls = 'BRILLIANT';
+    else if (totalDiff <= 0 && gain >= 3 && action.type === 'wall') cls = 'GREAT';
+    else if (totalDiff <= 0 && best.type === 'wall' && bestOppAfter - oppBefore >= 3) cls = 'GREAT';
     else if (totalDiff <= 0) cls = 'BEST';
+    else if (isOpening && totalDiff <= 1) cls = 'BOOK';
     else if (totalDiff === 1) cls = 'EXCELLENT';
     else if (totalDiff === 2) cls = 'GOOD';
+    else if (labels.includes('MISSED_CHOKE') && totalDiff <= 4) cls = 'MISS';
     else if (totalDiff <= 4) cls = 'INACCURACY';
     else if (totalDiff <= 7) cls = 'MISTAKE';
     else cls = 'BLUNDER';
@@ -225,6 +242,7 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
   return {
     moves,
     evalCurve,
+    winCurve: winChanceCurve(evalCurve).p0,
     summary: {
       ...tally,
       score: [score(0), score(1)],

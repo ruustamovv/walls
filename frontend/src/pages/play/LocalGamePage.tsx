@@ -2,9 +2,9 @@
  * Offline game screen: local 2P or vs engine bot.
  * Query: ?mode=local|bot&bot=<id>&size=9&walls=10&clock=<sec>&inc=<sec>
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { findShortestPath, getBot } from '../../../../engine/typescript/index.js';
+import { findShortestPath, getBot, quip } from '../../../../engine/typescript/index.js';
 import PathMeter from '../../components/game/PathMeter.js';
 import GameBoard from '../../components/game/GameBoard.js';
 import PlayerCard from '../../components/game/PlayerCard.js';
@@ -29,16 +29,64 @@ export default function LocalGamePage() {
 
   const fromCode = params.get('from');
   const from = fromCode !== null && fromCode !== '' ? decodePosition(fromCode) : null;
+  const isNemesis = (params.get('bot') ?? '') === 'nemesis';
+  const [nemesisDef, setNemesisDef] = useState<import('../../../../engine/typescript/index.js').BotDef | null>(null);
+  useEffect(() => {
+    if (!isNemesis) return;
+    try {
+      const raw = sessionStorage.getItem('nexus-nemesis');
+      if (raw !== null) {
+        setNemesisDef(JSON.parse(raw) as import('../../../../engine/typescript/index.js').BotDef);
+        return;
+      }
+    } catch {
+      // fall through to live fetch
+    }
+    void import('../../lib/api.js').then(({ api }) => {
+      api.nemesis().then((p) => {
+        setNemesisDef({
+          id: 'nemesis', name: 'Your Nemesis', rating: 1700, difficulty: 5,
+          style: `Counter to your game (cf. ${p.baseName})`, description: p.explanation,
+          weights: { ...p.weights }, wallCandidates: p.wallCandidates, noise: p.noise,
+          wallBias: p.wallBias, replySearch: p.replySearch, budgetMs: p.budgetMs,
+        });
+      }).catch(() => undefined);
+    });
+  }, [isNemesis]);
+  const resolvedBot = isNemesis ? nemesisDef : bot;
   const game = useLocalGame({
-    size: from?.state.size ?? size,
-    wallsPerPlayer: from?.state.wallsPerPlayer ?? walls,
+    size: from?.state.size ?? (isNemesis ? 15 : size),
+    wallsPerPlayer: from?.state.wallsPerPlayer ?? (isNemesis ? 20 : walls),
     mode,
-    botId: bot?.id ?? 'rookie',
+    botId: isNemesis ? 'nemesis' : (bot?.id ?? 'rookie'),
+    ...(isNemesis && nemesisDef !== null ? { customBot: nemesisDef } : {}),
     clockMs: clockSec * 1000, incrementMs: incSec * 1000,
     ...(from !== null ? { from } : {}),
   });
   const { state, actions } = game;
   const done = game.winnerSeat !== null;
+  const [banter, setBanter] = useState<string | null>(mode === 'bot' && bot !== null && bot !== undefined ? quip(bot, 'greet', 0) : null);
+  const [banterOn, setBanterOn] = useState(true);
+
+  // Bot table talk: greetings, mid-game remarks, and a sign-off.
+  useEffect(() => {
+    if (mode !== 'bot' || bot === null || bot === undefined || !banterOn) return;
+    if (done && game.winnerSeat !== null) {
+      setBanter(quip(bot, game.winnerSeat === 1 ? 'win' : 'lose', actions.length));
+      return;
+    }
+    if (done) return;
+    const botWalls = actions.filter((a, i) => a.type === 'wall' && i % 2 === 1).length;
+    if (botWalls === 3 && actions.length < 12) {
+      setBanter(quip(bot, 'wall', actions.length));
+      return;
+    }
+    const myPath = findShortestPath(state, 0).length;
+    const botPath = findShortestPath(state, 1).length;
+    if (actions.length >= 20) {
+      setBanter(quip(bot, botPath < myPath ? 'winning' : 'losing', actions.length));
+    }
+  }, [mode, bot, done, game.winnerSeat, actions, state, banterOn]);
   const humanSeats = useMemo(() => (mode === 'local' ? [0, 1] : [0]) as (0 | 1)[], [mode]);
 
   // Casual analysis aid: show both shortest paths (offline modes only).
@@ -49,11 +97,15 @@ export default function LocalGamePage() {
     return { a: a.path, b: b.path };
   }, [state, done]);
 
-  const topName = mode === 'bot' ? (bot?.name ?? 'Bot') : 'Player 2';
+  const topName = mode === 'bot' ? (resolvedBot?.name ?? 'Bot') : 'Player 2';
   const bottomName = mode === 'bot' ? 'You' : 'Player 1';
-  // Perspective: player 0 (bottom) starts at top of screen? Player 0 starts
-  // on the TOP row and moves down. Render top card = player 1 (bottom
-  // starter) so each side sits near its own goal row.
+  const [flipped, setFlipped] = useState(false);
+  // Seat 0 (You / Player 1) always renders at the bottom: the board is
+  // rotated 180° by default so their pawn starts at the bottom edge.
+  const rotated = !flipped;
+  const topSeat = (flipped ? 0 : 1) as 0 | 1;
+  const bottomSeat = (flipped ? 1 : 0) as 0 | 1;
+  const nameOfSeat = (s: 0 | 1): string => s === 0 ? bottomName : topName;
   const durationSec = done ? Math.round((Date.now() - game.startedAt) / 1000) : null;
 
   return (
@@ -61,47 +113,61 @@ export default function LocalGamePage() {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
         <h1 style={{ margin: 0, fontSize: 22 }}>
-          {mode === 'bot' ? `You vs ${bot?.name}` : 'Local game'}
+          {mode === 'bot' ? `You vs ${resolvedBot?.name ?? 'Bot'}` : 'Local game'}
         </h1>
         {game.botThinking && <span style={{ color: 'var(--muted)', fontSize: 14, animation: 'nexus-pulse 1s infinite' }}>thinking…</span>}
+        {mode === 'bot' && banterOn && banter !== null && (
+          <span style={{ fontSize: 14, fontStyle: 'italic', color: 'var(--muted)' }}>
+            “{banter}”
+            <button
+              onClick={() => setBanterOn(false)}
+              title="Mute bot banter"
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 12, marginLeft: 6 }}
+            >
+              mute
+            </button>
+          </span>
+        )}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }} className="nexus-game-layout">
         <div style={{ maxWidth: 640 }}>
           <div style={{ marginBottom: 10 }}>
             <PlayerCard
-              name={topName}
-              rating={mode === 'bot' ? bot?.rating : null}
-              clockMs={game.clocks[1]}
-              clockActive={game.clockOn && !done && state.turn === 1}
-              lowTime={game.clockOn && game.clocks[1] < 30000}
-              wallsLeft={state.wallsRemaining[1]}
+              name={nameOfSeat(topSeat)}
+              rating={mode === 'bot' && topSeat === 1 ? (resolvedBot?.rating ?? null) : null}
+              clockMs={game.clocks[topSeat]}
+              clockActive={game.clockOn && !done && state.turn === topSeat}
+              lowTime={game.clockOn && game.clocks[topSeat] < 30000}
+              wallsLeft={state.wallsRemaining[topSeat]}
               wallsTotal={state.wallsPerPlayer}
-              isTurn={!done && state.turn === 1}
-              isYou={mode === 'local'}
-              accent={1}
+              isTurn={!done && state.turn === topSeat}
+              isYou={mode === 'local' || (mode === 'bot' && topSeat === 0)}
+              accent={topSeat}
             />
           </div>
-          <GameBoard
-            state={state}
-            humanSeats={humanSeats}
-            interactive={!done && !game.botThinking}
-            onMove={game.doMove}
-            onWall={game.doWall}
-            lastAction={state.lastAction}
-            showPaths={paths}
-          />
+          <div style={rotated ? { transform: 'rotate(180deg)' } : undefined}>
+            <GameBoard
+              state={state}
+              humanSeats={humanSeats}
+              interactive={!done && !game.botThinking}
+              onMove={game.doMove}
+              onWall={game.doWall}
+              lastAction={state.lastAction}
+              showPaths={paths}
+            />
+          </div>
           <div style={{ marginTop: 10 }}>
             <PlayerCard
-              name={bottomName}
-              rating={null}
-              clockMs={game.clocks[0]}
-              clockActive={game.clockOn && !done && state.turn === 0}
-              lowTime={game.clockOn && game.clocks[0] < 30000}
-              wallsLeft={state.wallsRemaining[0]}
+              name={nameOfSeat(bottomSeat)}
+              rating={mode === 'bot' && bottomSeat === 1 ? (resolvedBot?.rating ?? null) : null}
+              clockMs={game.clocks[bottomSeat]}
+              clockActive={game.clockOn && !done && state.turn === bottomSeat}
+              lowTime={game.clockOn && game.clocks[bottomSeat] < 30000}
+              wallsLeft={state.wallsRemaining[bottomSeat]}
               wallsTotal={state.wallsPerPlayer}
-              isTurn={!done && state.turn === 0}
-              isYou
-              accent={0}
+              isTurn={!done && state.turn === bottomSeat}
+              isYou={mode === 'local' || (mode === 'bot' && bottomSeat === 0)}
+              accent={bottomSeat}
             />
           </div>
           {game.message !== '' && <p role="status" style={{ color: 'var(--bad)' }}>{game.message}</p>}
@@ -120,6 +186,7 @@ export default function LocalGamePage() {
           <Card>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <Button variant="ghost" onClick={game.restart}>Restart</Button>
+              <Button variant="ghost" onClick={() => setFlipped((f) => !f)}>Flip</Button>
               <Button
                 variant="ghost"
                 disabled={actions.length === 0 || game.botThinking || done}

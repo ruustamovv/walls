@@ -10,6 +10,17 @@ import { resolve } from "node:path";
 
 const root = process.cwd();
 const examplePath = resolve(root, ".env.example");
+const envPath = resolve(root, ".env");
+// Load .env for local DX (never prints values).
+try {
+  const raw = readFileSync(envPath, "utf8");
+  for (const line of raw.split("\n")) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const m = t.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].trim();
+  }
+} catch { /* no .env yet */ }
 
 // Required: MongoDB + Redis + auth secrets + public URLs.
 const REQUIRED = new Set([
@@ -19,16 +30,9 @@ const REQUIRED = new Set([
 ]);
 
 const FEATURE_OF = {
-  GROQ_API_KEY: "AI/groq", OPENAI_API_KEY: "AI/openai",
-  ANTHROPIC_API_KEY: "AI/anthropic", GEMINI_API_KEY: "AI/gemini",
-  OPENROUTER_API_KEY: "AI/openrouter",
-  AI_MODEL_CHAT: "AI/chat", AI_MODEL_ANALYSIS: "AI/review", AI_MODEL_TTS: "AI/tts",
-  S3_ENDPOINT: "storage", S3_BUCKET: "storage", S3_ACCESS_KEY: "storage",
-  S3_SECRET_KEY: "storage", SENTRY_DSN: "monitoring", OTEL_ENDPOINT: "monitoring",
-  GOOGLE_CLIENT_ID: "auth/google", GOOGLE_CLIENT_SECRET: "auth/google",
-  GITHUB_CLIENT_ID: "auth/github", GITHUB_CLIENT_SECRET: "auth/github",
-  SMTP_HOST: "email", SMTP_USER: "email", SMTP_PASS: "email",
-  STRIPE_SECRET_KEY: "payments", OWNER_INITIAL_PASSWORD: "owner bootstrap",
+  GROQ_API_KEY: "AI/groq",
+  AI_MODEL_CHAT: "AI/chat (banter/commentator)", AI_MODEL_COACH: "AI/coach (explains)", AI_MODEL_ANALYSIS: "AI/review (deep)",
+  OWNER_INITIAL_PASSWORD: "owner bootstrap",
 };
 
 function parseKeys(path) {

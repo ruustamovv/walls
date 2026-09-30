@@ -39,7 +39,7 @@ describe('review: labels', () => {
     assert.equal(review.moves.length, 4);
     assert.equal(review.evalCurve.length, 4);
     for (const m of review.moves) {
-      assert.ok(['BRILLIANT', 'BEST', 'EXCELLENT', 'GOOD', 'INACCURACY', 'MISTAKE', 'BLUNDER'].includes(m.class));
+      assert.ok(['BRILLIANT', 'GREAT', 'BEST', 'EXCELLENT', 'GOOD', 'BOOK', 'INACCURACY', 'MISTAKE', 'MISS', 'BLUNDER'].includes(m.class));
     }
     // Clean forward marches are near-perfect.
     assert.ok(review.summary.accuracy[0] >= 80);

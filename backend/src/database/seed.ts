@@ -71,7 +71,9 @@ async function main(): Promise<void> {
 
   await db.collection(COLLECTIONS.feature_flags).updateOne(
     { key: 'AI_COACH' },
-    { $setOnInsert: { key: 'AI_COACH', enabled: false, createdAt: new Date() } },
+    // Fresh databases ship with the coach ON (quotas + budgets still apply);
+    // $setOnInsert preserves an admin's explicit off choice on re-seed.
+    { $setOnInsert: { key: 'AI_COACH', enabled: true, createdAt: new Date() } },
     { upsert: true },
   );
 

@@ -18,14 +18,20 @@ export interface UserRecord {
   username: string;
   passwordHash: string;
   role: 'user' | 'moderator' | 'admin' | 'owner';
+  /** Ephemeral guest: casual-only, excluded from ranked settlement. */
+  guest: boolean;
   createdAt: number;
 }
 
 export interface AuthResult {
-  user: Pick<UserRecord, 'id' | 'email' | 'username' | 'role'>;
+  user: Pick<UserRecord, 'id' | 'email' | 'username' | 'role' | 'guest'>;
   session: SessionRecord;
   /** Suggested rate-limit bucket for the route layer. */
   rateLimitKey: string;
+}
+
+function publicUser(user: UserRecord): AuthResult['user'] {
+  return { id: user.id, email: user.email, username: user.username, role: user.role, guest: user.guest };
 }
 
 export class AuthService {
@@ -47,7 +53,7 @@ export class AuthService {
 
     const session = await this.sessions.create(user.id);
     return {
-      user: { id: user.id, email: user.email, username: user.username, role: user.role },
+      user: publicUser(user),
       session,
       rateLimitKey: `auth:register`,
     };
@@ -61,7 +67,7 @@ export class AuthService {
 
     const session = await this.sessions.create(user.id);
     return {
-      user: { id: user.id, email: user.email, username: user.username, role: user.role },
+      user: publicUser(user),
       session,
       rateLimitKey: `auth:login`,
     };
@@ -76,7 +82,7 @@ export class AuthService {
     });
     const session = await this.sessions.create(user.id);
     return {
-      user: { id: user.id, email: user.email, username: user.username, role: user.role },
+      user: publicUser(user),
       session,
       rateLimitKey: `auth:oauth`,
     };
@@ -95,6 +101,36 @@ export class AuthService {
     const s = await this.sessions.get(sessionId);
     if (s === null) return null;
     return this.store.findById(s.userId);
+  }
+
+  /** Ephemeral guest session: no credentials, casual-only (GST-001). */
+  async createGuest(): Promise<AuthResult> {
+    const user = await this.store.createGuest();
+    const session = await this.sessions.create(user.id);
+    return { user: publicUser(user), session, rateLimitKey: `auth:guest` };
+  }
+
+  /**
+   * Upgrade a guest session to a full account IN PLACE (same id, so all
+   * userId-keyed history transfers). Guests never settle ranked ratings,
+   * so no fabricated competitive history can migrate (GST-005).
+   */
+  async convertGuest(guestId: string, input: { email: string; username: string; password: string }): Promise<AuthResult> {
+    const passwordHash = await hashPassword(input.password);
+    const user = await this.store.convertGuest(guestId, {
+      email: input.email,
+      username: input.username,
+      passwordHash,
+    });
+    if (user.guest) throw new AuthError('Conversion failed');
+    const session = await this.sessions.create(user.id);
+    return { user: publicUser(user), session, rateLimitKey: `auth:convert` };
+  }
+
+  /** True when the user id belongs to an ephemeral guest (any store). */
+  async isGuest(userId: string): Promise<boolean> {
+    const user = await this.store.findById(userId).catch(() => null);
+    return user?.guest === true;
   }
 }
 

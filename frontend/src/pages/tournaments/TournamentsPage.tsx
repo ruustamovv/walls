@@ -2,13 +2,13 @@
  * Tournaments: browse, found, enter, run (owner), report, standings.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Avatar, Badge, Button, Card, EmptyState, ErrorBox, Field, Spinner, Tabs, TextInput } from '../../components/ui/primitives.js';
 import { useSession } from '../../stores/session.js';
 
-type Format = 'single-elim' | 'round-robin' | 'swiss';
-const FORMATS: Format[] = ['single-elim', 'round-robin', 'swiss'];
+type Format = 'single-elim' | 'round-robin' | 'swiss' | 'arena';
+const FORMATS: Format[] = ['single-elim', 'round-robin', 'swiss', 'arena'];
 
 export default function TournamentsPage() {
   const { id } = useParams();
@@ -139,7 +139,13 @@ function TournamentDetail({ id }: { id: string }) {
         {isOwner && (t.status === 'DRAFT' || t.status === 'OPEN') && (
           <Button variant="ghost" onClick={() => void act(() => api.tournamentStart(id), 'Start failed')}>Start now</Button>
         )}
+        {isOwner && t.status === 'LIVE' && (
+          <Button variant="ghost" onClick={() => void act(() => api.tournamentFinish(id), 'Finish failed')}>Finish & crown</Button>
+        )}
       </div>
+      {t.format === 'arena' && (
+        <ArenaPanel id={id} status={t.status} endAt={(t as { endAt?: string }).endAt ?? null} isMember={isMember} onChanged={load} />
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }} className="nexus-game-layout">
         <div style={{ display: 'grid', gap: 12 }}>
           {data.rounds.length === 0 && (
@@ -202,5 +208,61 @@ function TournamentDetail({ id }: { id: string }) {
       </div>
       <style>{`@media (max-width: 900px) { .nexus-game-layout { grid-template-columns: minmax(0,1fr) !important; } }`}</style>
     </div>
+  );
+}
+
+function ArenaPanel({ id, status, endAt, isMember, onChanged }: {
+  id: string;
+  status: string;
+  endAt: string | null;
+  isMember: boolean;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (status !== 'LIVE') return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [status]);
+
+  async function queue() {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await api.tournamentArena(id);
+      if (res.status === 'matched' && res.gameId !== undefined) {
+        navigate(`/game/${res.gameId}`);
+      } else {
+        setNote('In the pool — stay on this page, you will be paired as rivals arrive.');
+      }
+      onChanged();
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Queue failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const msLeft = endAt === null ? null : new Date(endAt).getTime() - now;
+  return (
+    <Card>
+      <h3 className="font-display" style={{ margin: '0 0 4px' }}>Arena floor</h3>
+      <p style={{ color: 'var(--muted)', fontSize: 14, margin: '0 0 8px' }}>
+        Continuous re-pairing while live. Every reported win scores a point.
+        {msLeft !== null && msLeft > 0 && (
+          <> Ends in <strong className="font-mono">{Math.floor(msLeft / 60000)}m {Math.floor((msLeft % 60000) / 1000)}s</strong>.</>
+        )}
+        {msLeft !== null && msLeft <= 0 && <> The clock has run out — organizer crowns the leader.</>}
+      </p>
+      {status === 'LIVE' && isMember && (
+        <Button onClick={() => void queue()} disabled={busy}>
+          {busy ? 'Pairing…' : 'Find arena game'}
+        </Button>
+      )}
+      {note !== null && <p style={{ color: 'var(--muted)', fontSize: 14 }}>{note}</p>}
+    </Card>
   );
 }

@@ -17,6 +17,21 @@ export default function BotsPage() {
         </p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))', gap: 12 }}>
+        <Card>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+            <Avatar name="Nemesis" size={40} />
+            <div>
+              <h3 className="font-display" style={{ margin: 0 }}>Nemesis</h3>
+              <DivisionBadge rating={1700} />
+            </div>
+          </div>
+          <p style={{ color: 'var(--muted)', fontSize: 14, margin: '0 0 12px', minHeight: 60 }}>
+            Built from your own mistakes. Requires an account with rated games.
+          </p>
+          <Link to="/nemesis" style={{ display: 'inline-block', textDecoration: 'none' }}>
+            <Button size="sm">Meet your Nemesis</Button>
+          </Link>
+        </Card>
         {BOTS.map((b) => (
           <Card key={b.id}>
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
@@ -25,7 +40,8 @@ export default function BotsPage() {
                 <h3 className="font-display" style={{ margin: 0 }}>{b.name}</h3>
                 <DivisionBadge rating={b.rating} />
               </div>
-              <span style={{ marginLeft: 'auto' }}>
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                {b.experimental === true && <Badge tone="warn">Experimental</Badge>}
                 <Badge tone={b.difficulty >= 4 ? 'bad' : b.difficulty >= 2 ? 'warn' : 'good'}>Tier {b.difficulty}</Badge>
               </span>
             </div>

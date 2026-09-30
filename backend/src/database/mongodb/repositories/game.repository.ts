@@ -22,11 +22,13 @@ export const CreateGameSchema = z.object({
   engineVersion: z.string().default('1.0.0'),
   players: z.array(z.object({
     userId: z.string().min(1),
-    seat: z.union([z.literal(0), z.literal(1)]),
+    seat: z.number().int().min(0).max(5),
     usernameAtStart: z.string().min(1),
     ratingAtStart: z.number(),
     clockMs: z.number().int().positive(),
-  })).min(1).max(2),
+  })).min(1).max(6),
+  variant: z.enum(['duel', 'multi']).default('duel'),
+  placement: z.array(z.number().int().min(0).max(5)).max(6).optional(),
 });
 export type CreateGameInput = z.input<typeof CreateGameSchema>;
 

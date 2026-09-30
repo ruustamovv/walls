@@ -2,6 +2,10 @@
  * Public API of @nexus/engine. Import from here, not from internals.
  */
 export {
+  winChanceCurve,
+  winChanceFor,
+} from './eval/winChance.js';
+export {
   BOARD_PRESETS,
   RULES_VERSION,
   type Action,
@@ -55,12 +59,15 @@ export {
 } from './replay/replay.js';
 export {
   BALANCED_WEIGHTS,
+  adaptiveBudgetMs,
   botAction,
   BOTS,
   chooseBotAction,
   evaluateFor,
   getBot,
   mulberry32,
+  quip,
+  type BanterTrigger,
   type BotDef,
   type EvalWeights,
   type ScoredAction,

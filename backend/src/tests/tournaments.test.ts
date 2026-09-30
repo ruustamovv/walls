@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { pairSingleElim, pairSwiss, roundRobinSchedule } from '../modules/tournaments/pairing.js';
 import {
-  createTournament, joinTournament, openTournament, reportResult, startTournament, standings, tournamentDetail,
+  arenaPlay, createTournament, finishTournament, joinTournament, openTournament, reportResult, startTournament, standings, tournamentDetail,
 } from '../modules/tournaments/service.js';
 import { AuthService } from '../modules/auth/service.js';
 import { MongoUserStore } from '../modules/auth/store.js';
@@ -109,6 +109,46 @@ describe('tournaments: single-elim flow', () => {
     const table = await standings(t._id);
     assert.equal(table[0]?.userId, fin[0]?.a);
     assert.equal(table[0]?.wins, 2);
+  });
+});
+
+describe('tournaments: arena flow', () => {
+  it('queues, pairs, scores and crowns', async () => {
+    const [o, p2, p3] = await makeUsers(3);
+    const t = await createTournament(o as string, { title: 'Friday Arena', format: 'arena', durationMinutes: 60 });
+    assert.equal(t.status, 'DRAFT');
+    for (const p of [p2, p3] as string[]) await joinTournament(t._id, p);
+    await startTournament(t._id);
+
+    const w1 = await arenaPlay(t._id, p2 as string);
+    assert.equal(w1.status, 'waiting');
+    // p3 arrives while p2 waits: instant pairing into a live game.
+    const m = await arenaPlay(t._id, p3 as string);
+    assert.equal(m.status, 'matched');
+    if (m.status !== 'matched') throw new Error('unreachable');
+    assert.ok(m.gameId.length > 0);
+
+    // The pairing is filed as round 1; reporting works through it.
+    const detail = await tournamentDetail(t._id);
+    assert.equal(detail?.rounds.length, 1);
+    await reportResult(t._id, 1, 0, p2 as string, o as string);
+    const table = await standings(t._id);
+    assert.equal(table[0]?.userId, p2);
+    assert.equal(table[0]?.points, 1);
+
+    await finishTournament(t._id, o as string);
+    const done = await tournamentDetail(t._id);
+    assert.equal(done?.tournament.status, 'FINISHED');
+    assert.equal(done?.tournament.champion, p2);
+  });
+
+  it('rejects non-arena queueing and non-owner finish', async () => {
+    const [o, p2] = await makeUsers(2);
+    const t = await createTournament(o as string, { title: 'Cup', format: 'single-elim' });
+    await joinTournament(t._id, p2 as string);
+    await startTournament(t._id);
+    await assert.rejects(() => arenaPlay(t._id, p2 as string));
+    await assert.rejects(() => finishTournament(t._id, p2 as string));
   });
 });
 

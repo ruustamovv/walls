@@ -1,6 +1,12 @@
 # PROJECT_STATUS — live phase tracker
 
-> Updated: 2026-09-26. Source of truth for "where are we".
+> Granular machine-readable tracker: `PROJECT_LIVE_TODO.json` (174 tasks,
+> phases 00–21, status/owner/deps/acceptance per task). Dev overlay reads
+> `frontend/public/live-todo.json` (synced via
+> `scripts/setup/sync-live-todo.mjs`, visible only with `VITE_DEV_TOOLS=true`,
+> toggle Ctrl/Cmd+Shift+T). This file stays as the human summary.
+>
+> Updated: 2026-09-30. Source of truth for "where are we".
 > Statuses: `NOT_STARTED` · `IN_PROGRESS` · `COMPLETE` · `BLOCKED`.
 > Spec phases 00–29 map below (master prompt §§164–193).
 
@@ -11,20 +17,21 @@
 | 02 | Design system | COMPLETE | 2026-09-27 | light-first dual theme restored (dark arena on game routes); sidebar/tablet/mobile nav; settings + WebAudio synth; pawn glide overlay; full primitives; new landing; hex leaks removed |
 | 03 | Database (MongoDB + Redis) | COMPLETE | 2026-09-26 | Phase DB-01 verified: `verify:live` 8/8 PASS with graceful shutdown, exit 0; games engineId link + sparse-unique index; listByUser for history |
 | 04 | Auth | IN_PROGRESS | 2026-09-27 | Mongo accounts + Redis sessions; split /login + /signup (strength, terms, OAuth buttons only when configured); Google/GitHub code flow + tests; password change/logout-all/delete; per-user settings (privacy/chat/notify) enforced server-side |
-| 05 | Core engine | COMPLETE | 2026-09-27 | engine 49/49 (rules + bots + review + puzzles + 8 multi); N-player core (2–4 seats, rotation, N-no-seal, multi bots); 2P core untouched; lint clean |
+| 05 | Core engine | COMPLETE | 2026-09-30 | engine 51/51 (rules + bots + review with accuracy/classes/curve + puzzles with seeded rush + 8 multi + banter); 2P core untouched; lint clean |
 | 06 | Local game | COMPLETE | 2026-09-26 | local 2P + vs-bot (9×9/15×15/17×17) with clocks, HUD, move list, result sheet; debug board removed |
-| 07 | Backend game service + realtime | IN_PROGRESS | 2026-09-27 | moves/walls/resign/draw + clocks + timeout; socket + REST; settle + journaling; live/meta/replay/review/notifications/search/announcements/analytics endpoints; game + club chat (mute + scope enforced); HTTP+socket E2E green; backend 61/61 lint-clean |
+| 07 | Backend game service + realtime | IN_PROGRESS | 2026-09-30 | + learn/rush/arena/nemesis/commentary endpoints; backend 79/79 lint-clean |
 | 08 | Matchmaking | IN_PROGRESS | 2026-09-26 | Redis queue preferred w/ memory fallback; status poll + match registry; server-side ratings; ranked→Standard 15×15 preset |
 | 09 | Ratings (Glicko-2) | IN_PROGRESS | 2026-09-26 | finished games update bullet/blitz/rapid/casual in Mongo (exactly-once settled flag); history appended; leaderboard endpoint live |
 | 10–11 | Profiles / Replays | IN_PROGRESS | 2026-09-27 | profiles + replay viewer (/replay/:id) + engine review panel live; replays persisted per finished game |
-| 12 | Bots | IN_PROGRESS | 2026-09-27 | 10 personalities playable; `pnpm calibrate` round-robin works (fortress 75% in smoke); full-matrix calibration + rating anchoring pending |
-| 13–15 | Puzzles / Friends / Chat | IN_PROGRESS | 2026-09-27 | daily + personal puzzles + training; friends + presence + challenges; game + club chat; rating-history + seat stats + profile chart; live AI coach (budget/kill-switch/quota overrides, Explain UI) |
+| 12 | Bots | IN_PROGRESS | 2026-09-30 | 10 personalities + banter + Nemesis counter; calibrate emits opening-book JSON; full-matrix rating anchoring pending |
+| 13–15 | Puzzles / Friends / Chat | IN_PROGRESS | 2026-09-30 | daily + personal + Rush/Survival (seeded, leaders) + training; friends + presence + challenges; game + club chat; rating-history + seat stats + profile chart; live AI coach (fallback chain, budgets, Explain UI + game summaries) |
+| 13–15 | Guest mode (GST) | COMPLETE | 2026-09-30 | POST /auth/guest (30/h) + /auth/convert in-place; casual-only (ranked/friends/clubs/chat-send gated, zero rating writes); share-link invites expire 24h; guest.test.js 2/2; backend 81/81 |
 | 13–15 | Leaderboards / Puzzles / Review | NOT_STARTED | — | — |
-| 16–19 | AI Coach/Nemesis/Mirror/Architect | IN_PROGRESS | 2026-09-27 | live coach calls (groq/openai/openrouter, quotas, usage log, per-move Explain UI); Nemesis/Mirror/Architect still future |
-| 20–21 | Tournaments / Clubs-social | IN_PROGRESS | 2026-09-27 | clubs + members-only chat + /clubs UI; tournaments live: single-elim/round-robin/swiss-lite, brackets/standings/reporting + /tournaments UI |
+| 16–19 | AI Coach/Nemesis/Mirror/Architect | IN_PROGRESS | 2026-09-30 | coach + game summaries + commentator over fallback chain (canned engine tier); Nemesis live (mistake-profile counter bot); Mirror/Architect still future |
+| 20–21 | Tournaments / Clubs-social | IN_PROGRESS | 2026-09-30 | clubs + chat; tournaments + ARENA format (live re-pairing, countdown, finish) + /tournaments UI |
 | 22–23 | Admin core/advanced | IN_PROGRESS | 2026-09-27 | STANDALONE console (:5174): dashboard + weekly charts + top events, users + warn/mute/entitlements, live games + queue, tournaments cancel, clubs delete, reports triage, announcements publish, AI budgets/spend/quota overrides, flags, filtered audit + CSV — RBAC + audited; admin + ops HTTP E2E green |
 | 24 | Premium/cosmetics | IN_PROGRESS | 2026-09-27 | entitlement ledger + coach-quota gating + admin grant/revoke + /premium UI; checkout honestly disabled (no provider); cosmetics catalog pending |
-| 25 | Special modes (Fog/4P/Siege…) | IN_PROGRESS | 2026-09-27 | party table live: 2–4P local + bots (9×9/5, 13×13, 15×15 presets), own board/HUD/result; online 4P + Fog/Team/Chaos still pending |
+| 25 | Special modes (Fog/4P/Siege…) | IN_PROGRESS | 2026-09-30 | party table live: 2–4P local + bots (9×9/5, 13×13, 15×15 presets), own board/HUD/result; ONLINE 4P live (N-seat service + bucket matchmaking + private links + multi:* sockets + placement settlement, casual-only) + online party UI; Fog/Team/Chaos still pending |
 | 26–29 | Hardening/load/polish/readiness | NOT_STARTED | — | threat-model + incident stubs |
 
 ## Phase DB-01 — PostgreSQL → MongoDB + Redis
@@ -93,8 +100,20 @@ Evidence: frontend typecheck + build clean, backend 61/61 lint-clean,
 engine 49/49, `verify:live` 8/8 exit 0. Profiler confirmation still wants
 a real browser pass (React DevTools: clock ticks must skip GameBoard).
 
+## Milestone F — retention core (2026-09-30)
+
+Delivered: review accuracy + 7-tier classifications + eval curve + retry
+boards + AI game summaries; Puzzle Rush/Survival with leaders; Learn
+curriculum (5 lessons, 12 verified-solvable steps) + mined opening book +
+position designer with share links + bot play-out; arena tournaments
+(live re-pairing, countdown, crowning); bot banter; Nemesis counter-bot;
+AI commentator + provider fallback chain + canned engine tier; coach ON
+by default on fresh seeds.
+Evidence: engine 51/51 lint-clean, backend 79/79 lint-clean,
+`verify:live` 8/8 exit 0, frontend + admin typecheck + build clean.
+
 ## Current focus
-1. F1 review-as-retention-core (accuracy, eval graph, retry mistakes, coach v2).
-2. F2 Puzzle Rush/Survival, F3 Learn vertical + opening explorer + position designer.
-3. F4 Arenas + bot banter/Nemesis; AI commentator + fallback chain.
+1. Manual two-browser + mobile-viewport QA pass (visual polish from findings).
+2. Online 4P (service/socket/matchmaking for N seats), Fog/Team/Chaos modes.
+3. Mirror/Architect, cosmetics catalog, lessons video layer.
 4. Phase 01 follow-up: live registrar checks for top-5 brands (.com + .uz) + trademark screen before purchase.

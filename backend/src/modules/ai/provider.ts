@@ -32,14 +32,29 @@ function readKey(id: AIProviderId): string | null {
 }
 
 function modelFor(id: AIProviderId): string | null {
-  const map: Record<AIProviderId, string | undefined> = {
-    groq: process.env['AI_MODEL_COACH'],
-    openai: process.env['AI_MODEL_COACH'],
-    anthropic: process.env['AI_MODEL_COACH'],
-    gemini: process.env['AI_MODEL_COACH'],
-    openrouter: process.env['AI_MODEL_COACH'],
+  // Split models by exercise: chat=banter/commentator, coach=explains, analysis=deep review.
+  const chat = process.env['AI_MODEL_CHAT']?.trim() || null;
+  const coach = process.env['AI_MODEL_COACH']?.trim() || null;
+  const analysis = process.env['AI_MODEL_ANALYSIS']?.trim() || null;
+  const defaults: Record<AIProviderId, string> = {
+    groq: 'llama-3.3-70b-versatile',
+    openai: 'gpt-4o-mini',
+    anthropic: 'claude-3-5-haiku-latest',
+    gemini: 'gemini-1.5-flash',
+    openrouter: 'meta-llama/llama-3.3-70b-instruct',
   };
-  return map[id] ?? null;
+  // Prefer task-specific override, fall back to provider default.
+  void chat; void analysis;
+  return coach || chat || analysis || defaults[id];
+}
+
+export function modelForTask(task: 'chat' | 'coach' | 'analysis'): string | null {
+  const chat = process.env['AI_MODEL_CHAT']?.trim() || null;
+  const coach = process.env['AI_MODEL_COACH']?.trim() || null;
+  const analysis = process.env['AI_MODEL_ANALYSIS']?.trim() || null;
+  if (task === 'chat') return chat ?? coach ?? analysis;
+  if (task === 'coach') return coach ?? chat ?? analysis;
+  return analysis ?? coach ?? chat;
 }
 
 export function selectedProvider(): AIProviderId {

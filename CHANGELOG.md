@@ -3,6 +3,27 @@
 All notable changes to PROJECT_NEXUS (dev codename) are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased] — 2026-09-30 — F retention core (review, rush, learn, arenas, nemesis, commentary)
+
+### Added
+- Review: 7-tier move classifications, per-player accuracy, eval-curve
+  graph, in-place retry boards, AI whole-game summaries.
+- Puzzle Rush (3:00/+5s/3 strikes) + Survival (one life), seeded server
+  puzzles, anti-farm solve ledger, solver leaderboard.
+- Learn: 5-lesson curriculum (12 steps, all solver-verified by test),
+  mined 9×9 opening book from real simulations, position designer with
+  share links + bot/local play-out.
+- Arenas: continuous re-pairing tournaments with countdown, live
+  standings, owner crowning.
+- Bot banter (deterministic, mutable) + Nemesis mistake-profile
+  counter-bot with dedicated page.
+- AI commentator for spectators; provider fallback chain with canned
+  engine tier; coach enabled by default on fresh seeds.
+
+### Fixed
+- Stale-dist test runs (rebuild before node --test); AI zero-quota
+  semantics; review payload now carries board geometry.
+
 ## [Unreleased] — 2026-09-27 — S full smoothing pass
 
 ### Changed

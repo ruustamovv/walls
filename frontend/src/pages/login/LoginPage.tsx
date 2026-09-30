@@ -51,6 +51,19 @@ export default function LoginPage() {
             {session.busy ? 'Please wait…' : 'Log in'}
           </Button>
         </form>
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <Button
+            variant="ghost"
+            disabled={session.busy}
+            style={{ width: '100%' }}
+            onClick={() => { void session.loginAsGuest().then((ok) => { if (ok) navigate(next); }); }}
+          >
+            Continue as guest
+          </Button>
+        </div>
+        <p style={{ color: 'var(--muted)', fontSize: 12, margin: '8px 0 0', textAlign: 'center' }}>
+          Guests play casual instantly — no rating. Register later to keep progress.
+        </p>
         <OAuthButtons next={next} />
         <p style={{ textAlign: 'center', color: 'var(--muted)', margin: '14px 0 0' }}>
           <Link to="/forgot-password">Forgot password?</Link>

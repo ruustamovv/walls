@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type ThemeChoice = 'auto' | 'site' | 'arena';
-export type BoardTheme = 'midnight' | 'paper' | 'ember';
+export type BoardTheme = 'midnight' | 'paper' | 'ember' | 'quoridor';
 export type PawnSet = 'classic' | 'ring';
 export type LangChoice = 'en' | 'ru' | 'uz';
 
@@ -49,6 +49,6 @@ export const useSettings = create<SettingsState>()(
       setConfirmWall: (confirmWall) => set({ confirmWall }),
       setLanguage: (language) => set({ language }),
     }),
-    { name: 'nexus-settings' },
+    { name: 'quoridor-settings' },
   ),
 );

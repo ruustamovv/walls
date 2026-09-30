@@ -1,6 +1,5 @@
 /**
- * NEXUS design-system primitives — every visual variant lives here.
- * Pages use these; no ad-hoc buttons/cards/inputs elsewhere.
+ * Quoridor design-system primitives — every visual variant lives here.
  * All color comes from theme.css variables (both themes supported).
  */
 import { useState, type CSSProperties, type ReactNode } from 'react';
@@ -278,6 +277,77 @@ export function Tabs<T extends string>({ tabs, active, onChange }: { tabs: reado
           {t}
         </button>
       ))}
+    </div>
+  );
+}
+
+/* ── Quoridor additions: categories, move badges, eval ── */
+
+export function Segmented<T extends string>({ options, active, onChange, ariaLabel }: {
+  options: readonly T[]; active: T; onChange: (t: T) => void; ariaLabel?: string;
+}) {
+  return (
+    <div role="tablist" aria-label={ariaLabel ?? 'options'} style={{
+      display: 'inline-flex', gap: 4, background: 'var(--surface-2)', border: '1px solid var(--line)',
+      borderRadius: 'var(--radius-pill)', padding: 4,
+    }}>
+      {options.map((o) => (
+        <button key={o} role="tab" aria-selected={active === o} onClick={() => onChange(o)} style={{
+          border: 'none', borderRadius: 'var(--radius-pill)', padding: '7px 14px', fontWeight: 800,
+          fontSize: 13, fontFamily: 'var(--font-display)', textTransform: 'capitalize',
+          background: active === o ? 'var(--surface)' : 'transparent',
+          color: active === o ? 'var(--ink)' : 'var(--muted)',
+          boxShadow: active === o ? 'var(--shadow-card)' : 'none',
+        }}>{o}</button>
+      ))}
+    </div>
+  );
+}
+
+const MOVE_META: Record<string, { symbol: string; bg: string; fg: string; label: string }> = {
+  BRILLIANT: { symbol: '!!', bg: 'var(--brilliant)', fg: '#fff', label: 'Brilliant' },
+  GREAT: { symbol: '!', bg: 'var(--great)', fg: '#fff', label: 'Great' },
+  BEST: { symbol: '★', bg: 'var(--good)', fg: '#fff', label: 'Best' },
+  EXCELLENT: { symbol: '👍', bg: 'var(--good-soft)', fg: 'var(--good)', label: 'Excellent' },
+  GOOD: { symbol: '✓', bg: 'var(--surface-2)', fg: 'var(--muted)', label: 'Good' },
+  BOOK: { symbol: '📖', bg: 'var(--surface-2)', fg: 'var(--muted)', label: 'Book' },
+  INACCURACY: { symbol: '?!', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Inaccuracy' },
+  MISTAKE: { symbol: '?', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Mistake' },
+  MISS: { symbol: '×', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Miss' },
+  BLUNDER: { symbol: '??', bg: 'var(--bad)', fg: '#fff', label: 'Blunder' },
+  GREAT_WALL: { symbol: '🧱!', bg: 'var(--great)', fg: '#fff', label: 'Great wall' },
+  WALL_BLUNDER: { symbol: '🧱?', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Wall blunder' },
+  PATH_BLUNDER: { symbol: '↗?', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Path blunder' },
+  TEMPO_LOSS: { symbol: '◷', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Tempo loss' },
+  MISSED_CHOKE: { symbol: '◎', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Missed choke' },
+  CLUTCH: { symbol: '♛', bg: 'var(--gold)', fg: '#fff', label: 'Clutch' },
+};
+
+export function MoveBadge({ kind, size = 22 }: { kind: string; size?: number }) {
+  const m = MOVE_META[kind] ?? MOVE_META.GOOD!;
+  return (
+    <span title={m.label} aria-label={m.label} style={{
+      width: size, height: size, borderRadius: '50%', display: 'inline-flex', alignItems: 'center',
+      justifyContent: 'center', background: m.bg, color: m.fg, fontSize: size * 0.42, fontWeight: 900,
+      fontFamily: 'var(--font-mono)', flexShrink: 0, boxShadow: 'var(--shadow-card)',
+    }}>{m.symbol}</span>
+  );
+}
+
+export function EvalBar({ whitePct, label }: { whitePct: number; label?: string }) {
+  const pct = Math.min(100, Math.max(0, whitePct));
+  return (
+    <div aria-label={label ?? `Win chance ${pct.toFixed(1)}%`} title={label ?? `${pct.toFixed(1)}%`} style={{
+      width: 30, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--line)',
+      background: '#0a0b16', display: 'flex', flexDirection: 'column', minHeight: 280,
+    }}>
+      <div style={{ flex: `${100 - pct} 1 0%`, background: '#0a0b16', transition: 'flex .3s ease', minHeight: pct >= 100 ? 0 : 4 }} />
+      <div style={{
+        flex: `${pct} 1 0%`, background: 'linear-gradient(180deg,#fff,#e8e2d4)', transition: 'flex .3s ease',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center', minHeight: pct <= 0 ? 0 : 18,
+      }}>
+        <span className="font-mono" style={{ fontSize: 10, fontWeight: 800, color: '#13122e', paddingBottom: 3 }}>{pct.toFixed(0)}</span>
+      </div>
     </div>
   );
 }

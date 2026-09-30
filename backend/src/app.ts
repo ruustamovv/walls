@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { toErrorShape } from './common/errors/errors.js';
 import { logger } from './common/logging/logger.js';
 import { registerV1 } from './routes/v1.js';
+import { registerMulti } from './routes/multi.js';
 import { registerAdmin } from './routes/admin.js';
 import { checkMongoHealth } from './database/mongodb/health.js';
 import { checkRedisHealth } from './database/redis/health.js';
@@ -57,7 +58,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Root probes (also mirrored under /api/v1).
   // /ready verifies MongoDB + Redis connectivity — no credentials exposed.
-  app.get('/health', async () => ({ ok: true, service: 'nexus-backend' }));
+  app.get('/health', async () => ({ ok: true, service: 'quoridor-backend' }));
   app.get('/ready', async () => {
     const [mongo, redis] = await Promise.all([checkMongoHealth(), checkRedisHealth()]);
     const ok = mongo.ok;
@@ -72,6 +73,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   app.get('/live', async () => ({ ok: true }));
 
   await registerV1(app);
+  await registerMulti(app);
   await registerAdmin(app);
 
   return app;

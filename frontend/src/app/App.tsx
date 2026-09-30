@@ -34,6 +34,7 @@ const TermsPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => 
 const PrivacyPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.PrivacyPage })));
 const FairPlayPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.FairPlayPage })));
 const BotsPage = lazy(() => import('../pages/bots/BotsPage.js'));
+const NemesisPage = lazy(() => import('../pages/nemesis/NemesisPage.js'));
 const LeaderboardPage = lazy(() => import('../pages/leaderboard/LeaderboardPage.js'));
 const WatchPage = lazy(() => import('../pages/watch/WatchPage.js'));
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage.js'));
@@ -41,6 +42,7 @@ import { BRAND } from '../lib/brand.js';
 import { useT } from '../lib/i18n.js';
 import { useSession } from '../stores/session.js';
 import { Avatar, Logo } from '../components/ui/primitives.js';
+import { DevTodoDrawer } from '../components/dev/DevTodoDrawer.js';
 
 function Icon({ d }: { d: string }) {
   return (
@@ -51,17 +53,17 @@ function Icon({ d }: { d: string }) {
 }
 
 const PATHS = {
-  play: 'M6 4l9 6-9 6V4z',
-  bots: 'M4 7h12v7H4zM7 4v3M13 4v3M7 14v3M13 14v3',
-  puzzles: 'M10 2l2 5 5 2-5 2-2 5-2-5-5-2 5-2z',
+  play: 'M10 2l8 8-8 8V2zM4 4h2v12H4z',
+  bots: 'M10 3a7 7 0 017 7v1h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a7 7 0 01-14 0H2a1 1 0 01-1-1v-3a1 1 0 011-1h1V10a7 7 0 017-7zm-2.5 6.5A1.5 1.5 0 109 11a1.5 1.5 0 00-1.5-1.5zm5 0A1.5 1.5 0 1014 11a1.5 1.5 0 00-1.5-1.5zM8 14h4v1.5H8z',
+  puzzles: 'M9 2h6v4h4v6h-4v2h-2v4H7v-4H3V8h4V2h2zm0 2v4H5v4h4v2h2v-2h4V8h-4V4H9z',
   board: 'M3 3h14v14H3zM3 8h14M3 13h14M8 3v14M13 3v14',
   watch: 'M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5zm8 2.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
-  friends: 'M7 8a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM2 17c0-3 2.5-5 5-5s5 2 5 5M14 5.5A2.5 2.5 0 1114 10M15 12c2 .7 3.5 2.3 3.5 5',
-  clubs: 'M3 17V7l7-4 7 4v10M3 17h14M8 17v-4h4v4',
-  trophy: 'M6 3h12v2h3v3c0 3-2 5-4 5.5V15a5 5 0 01-4 4.9V18h3v2H4v-2h3v1.9A5 5 0 013 15v-1.5C1 13 0 11 0 8V5h3V3h3zm-1 4H2v1c0 1.5.8 2.6 2 3V7zm14 0v4c1.2-.4 2-1.5 2-3V7h-2z',
-  training: 'M10 2a8 8 0 100 16 8 8 0 000-16zM10 6a4 4 0 100 8 4 4 0 000-8zM10 9.5a.5.5 0 100 1 .5.5 0 000-1z',
-  gem: 'M10 2l4 4 4-4-4 12-4-12zm0 0L2 6l8 12L10 2zm0 0l8 4-8 12V2zM2 6h16',
-  settings: 'M10 7a3 3 0 100 6 3 3 0 000-6zM10 2v3M10 15v3M2 10h3M15 10h3M4.5 4.5l2 2M13.5 13.5l2 2M15.5 4.5l-2 2M6.5 13.5l-2 2',
+  friends: 'M10 8a3 3 0 100-6 3 3 0 000 6zm-7 9c0-3.5 3-6 7-6s7 2.5 7 6v1H3v-1z',
+  clubs: 'M10 2l7 3v6c0 4-3 6.8-7 7-4-.2-7-3-7-7V5l7-3zm0 2.2L5 6v5c0 3 2.2 5 5 5.4 2.8-.4 5-2.4 5-5.4V6l-5-1.8zm-3 5h6v2H7V9zm1 3h4v4H8v-4z',
+  trophy: 'M7 3h6v2h4v2c0 3.5-2.5 5.8-5 6.3V15h2v3H6v-3h2v-1.7C5.5 12.8 3 10.5 3 7V5h4V3zm-2 4H4v1c0 1.8 1 3.2 2.3 3.8L6 7zm8 0v4.8c1.3-.6 2.3-2 2.3-3.8V7H13z',
+  training: 'M10 2a8 8 0 100 16 8 8 0 000-16zm0 2a6 6 0 110 12 6 6 0 010-12zm0 2a4 4 0 100 8 4 4 0 000-8zm0 3l2.5 2.5-1.4 1.4L10 11.8l-1.1 1.1-1.4-1.4L10 9z',
+  gem: 'M10 2l7 5-7 11L3 7l7-5zm0 2.3L5 7.5 10 15l5-7.5-5-3.2zM3 7h14',
+  settings: 'M10 7a3 3 0 100 6 3 3 0 000-6zm8 3a8 8 0 01-.2 1.7l2 1.6-2 3.4-2.4-.9a8 8 0 01-2.9 1.7L12 20h-4l-.5-2.5a8 8 0 01-2.9-1.7l-2.4.9-2-3.4 2-1.6A8 8 0 012 10V8l2.2-.3 1-2.1L4 4l2-3 2 1.4 2-1V0h4v1.4l2 1-2-1.4 2 3-1.2 1.6 1 2.1L18 8v2z',
   admin: 'M10 2l7 3v6c0 4-3 6.5-7 7-4-.5-7-3-7-7V5z',
 } as const;
 
@@ -78,9 +80,7 @@ const ITEMS: NavItem[] = [
   { to: '/play', label: 'Play', i18n: 'play', icon: 'play' },
   { to: '/bots', label: 'Bots', i18n: 'bots', icon: 'bots' },
   { to: '/puzzles', label: 'Puzzles', i18n: 'puzzles', icon: 'puzzles' },
-  { to: '/rush', label: 'Rush', i18n: 'rush', icon: 'puzzles' },
   { to: '/learn', label: 'Learn', i18n: 'learn', icon: 'training' },
-  { to: '/training', label: 'Training', i18n: 'training', icon: 'training', authOnly: true },
   { to: '/leaderboard', label: 'Ranks', i18n: 'ranks', icon: 'board' },
   { to: '/watch', label: 'Watch', i18n: 'watch', icon: 'watch' },
   { to: '/friends', label: 'Friends', i18n: 'friends', icon: 'friends', authOnly: true },
@@ -147,9 +147,8 @@ function Sidebar() {
     }}>
       <Link to="/" style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', marginBottom: 'var(--space-4)' }} aria-label={BRAND.APP_NAME}>
         <Logo size={32} />
-        <span className="font-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: '.04em' }}>
+        <span className="font-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: '.02em' }}>
           {BRAND.APP_SHORT_NAME}
-          {BRAND.PROVISIONAL && <span style={{ color: 'var(--muted)', fontWeight: 400, fontSize: 11 }}> beta</span>}
         </span>
       </Link>
       <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
@@ -350,7 +349,7 @@ export default function App() {
       <Sidebar />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <TopBar onMenu={() => setDrawer(true)} />
-        <main style={{ maxWidth: 1200, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
+        <main style={{ maxWidth: 1280, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
           <Suspense fallback={<div style={{ padding: 24 }}><Spinner /></div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -379,6 +378,7 @@ export default function App() {
             <Route path="/premium" element={<PremiumPage />} />
             <Route path="/admin" element={<AdminMoved />} />
             <Route path="/bots" element={<BotsPage />} />
+          <Route path="/nemesis" element={<NemesisPage />} />
             <Route path="/leaderboard" element={<LeaderboardPage />} />
             <Route path="/watch" element={<WatchPage />} />
             <Route path="/settings" element={<SettingsPage />} />
@@ -392,37 +392,9 @@ export default function App() {
           </Routes>
           </Suspense>
         </main>
-        <footer style={{ borderTop: '1px solid var(--line)', color: 'var(--muted)', fontSize: 13 }}>
-          <div style={{ maxWidth: 1200, margin: '0 auto', padding: '16px 20px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-            <div style={{ flex: '1 1 220px' }}>
-              <strong style={{ color: 'var(--ink)' }}>{BRAND.APP_SHORT_NAME}</strong>
-              <p style={{ margin: '6px 0 0' }}>Original wall-and-pawn strategy platform. No affiliation with any existing product.</p>
-            </div>
-            <nav aria-label="Play" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <strong style={{ color: 'var(--ink)', fontSize: 12 }}>PLAY</strong>
-              <Link to="/play">Quick match</Link>
-              <Link to="/bots">Bots</Link>
-              <Link to="/puzzles">Daily puzzle</Link>
-              <Link to="/tournaments">Tournaments</Link>
-            </nav>
-            <nav aria-label="Community" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <strong style={{ color: 'var(--ink)', fontSize: 12 }}>COMMUNITY</strong>
-              <Link to="/leaderboard">Leaderboard</Link>
-              <Link to="/watch">Watch</Link>
-              <Link to="/clubs">Clubs</Link>
-              <Link to="/friends">Friends</Link>
-            </nav>
-            <nav aria-label="Trust" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <strong style={{ color: 'var(--ink)', fontSize: 12 }}>TRUST</strong>
-              <Link to="/fair-play">Fair play</Link>
-              <Link to="/terms">Terms</Link>
-              <Link to="/privacy">Privacy</Link>
-              <Link to="/premium">Premium</Link>
-            </nav>
-          </div>
-        </footer>
       </div>
       <BottomTabs />
+      <DevTodoDrawer />
       {drawer && (
         <div role="dialog" aria-label="Menu" onClick={() => setDrawer(false)} style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(8,10,16,.5)' }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 280, height: '100%', background: 'var(--surface)', padding: 'var(--space-4)', overflowY: 'auto' }}>

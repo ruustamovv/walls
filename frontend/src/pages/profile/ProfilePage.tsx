@@ -1,10 +1,10 @@
 /**
- * Player profile: real ratings, win/loss, recent games from Mongo.
+ * Quoridor profile: ratings blitz/bullet/rapid, views, history, stats.
  */
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { Avatar, Badge, Button, Card, DivisionBadge, EmptyState, ErrorBox, Skeleton, Spinner, TextInput } from '../../components/ui/primitives.js';
+import { Avatar, Badge, Button, Card, DivisionBadge, EmptyState, ErrorBox, Segmented, Skeleton, Spinner, TextInput } from '../../components/ui/primitives.js';
 import { useSession } from '../../stores/session.js';
 
 export default function ProfilePage() {
@@ -13,6 +13,8 @@ export default function ProfilePage() {
   const username = id === 'me' ? (user?.username ?? '') : id;
   const [data, setData] = useState<Awaited<ReturnType<typeof api.profile>> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<'blitz' | 'bullet' | 'rapid' | 'casual'>('blitz');
+  const [challenged, setChallenged] = useState<string | null>(null);
 
   useEffect(() => {
     if (username === '') return;
@@ -38,8 +40,16 @@ export default function ProfilePage() {
             {data === null
               ? <Skeleton width={140} />
               : data.ratings.length > 0 && <DivisionBadge rating={Math.max(...data.ratings.map((r) => r.rating))} />}
-            {data?.degraded === true && <Badge tone="warn">database offline</Badge>}
-            {user !== null && user.username !== username && <ReportUserButton username={username} />}
+            {data?.views !== undefined && <Badge tone="neutral">👁 {data.views} views</Badge>}
+            {data?.degraded === true && <Badge tone="warn">offline</Badge>}
+            {user !== null && user.username !== username && (
+              <>
+                <ReportUserButton username={username} />
+                {challenged !== null
+                  ? <Badge tone="good">{challenged}</Badge>
+                  : <Button size="sm" onClick={() => { void api.challenge(username, '3+1', 'ranked').then(() => setChallenged('Challenge sent')).catch((e: unknown) => setChallenged(e instanceof Error ? e.message : 'Failed')); }}>Challenge 1v1</Button>}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -68,11 +78,11 @@ export default function ProfilePage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
               {data.ratings.map((r) => (
                 <Card key={r.mode}>
-                  <div style={{ textTransform: 'capitalize', color: 'var(--muted)', fontSize: 13, fontWeight: 700 }}>{r.mode}</div>
+                  <div style={{ textTransform: 'capitalize', color: 'var(--muted)', fontSize: 13, fontWeight: 700 }}>{r.mode} {r.mode === 'bullet' ? '· 1+' : r.mode === 'blitz' ? '· 3+' : r.mode === 'rapid' ? '· 5+' : ''}</div>
                   <div className="font-mono" style={{ fontSize: 26, fontWeight: 800 }}>{r.rating}</div>
                   <div style={{ margin: '6px 0' }}><DivisionBadge rating={r.rating} /></div>
                   <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-                    peak {r.peak} · {r.games} games · {r.wins}W/{r.losses}L
+                    peak {r.peak} · {r.games} · {r.wins}W/{r.losses}L
                   </div>
                 </Card>
               ))}
@@ -80,7 +90,10 @@ export default function ProfilePage() {
                 <Card><EmptyState title="No ratings yet" body="Play your first game to earn a rating." action={<Link to="/play">Play</Link>} /></Card>
               )}
             </div>
-            <RatingChart username={username} mode="blitz" />
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <Segmented options={['blitz', 'bullet', 'rapid', 'casual'] as const} active={mode} onChange={setMode} ariaLabel="rating mode" />
+            </div>
+            <RatingChart username={username} mode={mode} />
             <Card>
               <h2 style={{ margin: '0 0 10px' }}>Recent games</h2>
               {data.recentGames.length === 0

@@ -13,6 +13,8 @@ interface SessionState {
   refresh: () => Promise<void>;
   login: (login: string, password: string) => Promise<boolean>;
   register: (email: string, username: string, password: string) => Promise<boolean>;
+  loginAsGuest: () => Promise<boolean>;
+  convertGuest: (email: string, username: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
@@ -60,6 +62,30 @@ export const useSession = create<SessionState>((set) => ({
       await api.logout();
     } finally {
       set({ user: null });
+    }
+  },
+
+  loginAsGuest: async () => {
+    set({ busy: true, error: null });
+    try {
+      const { user } = await api.guest();
+      set({ user, busy: false });
+      return true;
+    } catch (err) {
+      set({ busy: false, error: err instanceof Error ? err.message : 'Guest login failed' });
+      return false;
+    }
+  },
+
+  convertGuest: async (email, username, password) => {
+    set({ busy: true, error: null });
+    try {
+      const { user } = await api.convert({ email, username, password });
+      set({ user, busy: false });
+      return true;
+    } catch (err) {
+      set({ busy: false, error: err instanceof Error ? err.message : 'Conversion failed' });
+      return false;
     }
   },
 }));

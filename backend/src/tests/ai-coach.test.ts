@@ -39,6 +39,47 @@ after(async () => {
   __resetRedisForTests();
 });
 
+describe('ai commentary + fallback chain', () => {
+  const FACTS2 = {
+    moves: 24, turn: 0 as 0 | 1, status: 'active', lastActions: ['move 5,4', 'wall h 3,3'],
+    ownPath: 7, oppPath: 9, clockSec: [95, 110] as [number, number], winnerSeat: null,
+  };
+
+  it('narrates verified facts', async () => {
+    const { commentate } = await import('../modules/ai/complete.js');
+    stubFetch('Seat 0 presses forward, routes 7 versus 9.');
+    const res = await commentate('u-com-1', 'groq', FACTS2);
+    assert.equal(res.ok, true);
+    assert.ok((res.explanation ?? '').includes('routes 7 versus 9'));
+  });
+
+  it('falls back across providers, then to canned engine text', async () => {
+    const { commentate } = await import('../modules/ai/complete.js');
+    process.env['OPENAI_API_KEY'] = 'test-key-openai';
+    try {
+      globalThis.fetch = (async (url: unknown) => {
+        const u = String(url);
+        if (u.includes('groq')) return new Response('boom', { status: 500 });
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: 'OpenAI narrative.' } }],
+          usage: { prompt_tokens: 10, completion_tokens: 10 },
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }) as typeof fetch;
+      const res = await commentate('u-com-2', 'groq', FACTS2);
+      assert.equal(res.ok, true);
+      assert.equal(res.provider, 'openai');
+      assert.ok((res.explanation ?? '').includes('OpenAI narrative'));
+
+      globalThis.fetch = (async () => new Response('down', { status: 500 })) as typeof fetch;
+      const canned = await commentate('u-com-3', 'groq', FACTS2);
+      assert.equal(canned.ok, true);
+      assert.ok((canned.explanation ?? '').includes('Engine summary'));
+    } finally {
+      delete process.env['OPENAI_API_KEY'];
+    }
+  });
+});
+
 describe('ai coach', () => {
   it('returns the model explanation grounded in engine facts', async () => {
     stubFetch('That wall gained one step; the reference gains four by sealing the left corridor.');
@@ -48,10 +89,11 @@ describe('ai coach', () => {
     assert.equal(res.provider, 'groq');
   });
 
-  it('rejects malformed provider responses instead of rendering them', async () => {
+  it('degrades malformed provider responses to canned engine text', async () => {
     globalThis.fetch = (async () => new Response('not json', { status: 200 })) as typeof fetch;
     const res = await coachExplanation('u-coach-2', 'groq', FACTS);
-    assert.equal(res.ok, false);
+    assert.equal(res.ok, true);
+    assert.ok((res.explanation ?? '').includes('Engine summary'));
   });
 
   it('is honest about unimplemented providers', async () => {
