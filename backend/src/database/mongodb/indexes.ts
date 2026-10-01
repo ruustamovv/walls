@@ -9,7 +9,7 @@ import { COLLECTIONS } from './collections.js';
 
 export async function ensureIndexes(db: Db): Promise<string[]> {
   const created: string[] = [];
-  const ensure = async (collection: string, spec: Record<string, 1 | -1>, opts?: { unique?: boolean; sparse?: boolean; name?: string }) => {
+  const ensure = async (collection: string, spec: Record<string, 1 | -1>, opts?: { unique?: boolean; sparse?: boolean; name?: string; expireAfterSeconds?: number }) => {
     await db.collection(collection).createIndex(spec, opts ?? {});
     created.push(`${collection}:${opts?.name ?? JSON.stringify(spec)}`);
   };
@@ -57,6 +57,9 @@ export async function ensureIndexes(db: Db): Promise<string[]> {
   await ensure(COLLECTIONS.entitlements, { userId: 1, entitlement: 1 }, { unique: true, name: 'entitlements_user_ent' });
   await ensure(COLLECTIONS.reports, { status: 1, createdAt: -1 });
   await ensure(COLLECTIONS.notifications, { userId: 1, createdAt: -1 });
+  await ensure(COLLECTIONS.fairplay, { userId: 1 }, { unique: true, name: 'fairplay_user' });
+  await ensure(COLLECTIONS.profile_view_days, { userId: 1, day: 1 }, { unique: true, name: 'profile_view_days_user_day' });
+  await ensure(COLLECTIONS.profile_view_days, { createdAt: 1 }, { expireAfterSeconds: 90 * 86_400, name: 'profile_view_days_ttl' });
   await ensure(COLLECTIONS.tournaments, { status: 1, startAt: 1 });
 
   await ensure(COLLECTIONS.puzzle_attempts, { userId: 1, puzzleId: 1, createdAt: -1 }, { name: 'puzzle_attempts_lookup' });

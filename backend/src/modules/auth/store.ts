@@ -40,6 +40,7 @@ function toRecord(doc: UserDoc): UserRecord {
     passwordHash: doc.passwordHash,
     role: doc.role === 'OWNER' || doc.role === 'ADMIN' ? 'admin' : doc.role === 'MODERATOR' ? 'moderator' : 'user',
     guest: doc.guest === true,
+    emailVerified: doc.emailVerified === true,
     createdAt: doc.createdAt instanceof Date ? doc.createdAt.getTime() : Date.now(),
   };
 }
@@ -57,7 +58,7 @@ export class MemoryUserStore implements UserStore {
     const g = globalThis.crypto;
     const tail = typeof g?.randomUUID === 'function' ? g.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const user: UserRecord = {
-      id: `u_${tail}`, email, username, passwordHash: input.passwordHash, role: 'user', guest: false, createdAt: Date.now(),
+      id: `u_${tail}`, email, username, passwordHash: input.passwordHash, role: 'user', guest: false, emailVerified: false, createdAt: Date.now(),
     };
     this.byId.set(user.id, user);
     this.idByEmail.set(email, user.id);
@@ -81,7 +82,7 @@ export class MemoryUserStore implements UserStore {
     const idn = guestIdentity();
     const user: UserRecord = {
       id: `g_${tail}`, email: idn.email, username: idn.username,
-      passwordHash: '!', role: 'user', guest: true, createdAt: Date.now(),
+      passwordHash: '!', role: 'user', guest: true, emailVerified: false, createdAt: Date.now(),
     };
     this.byId.set(user.id, user);
     this.idByEmail.set(user.email, user.id);

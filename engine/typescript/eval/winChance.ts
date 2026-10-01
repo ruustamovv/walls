@@ -46,3 +46,46 @@ export function winChanceCurve(
   });
   return { p0, p1 };
 }
+
+export interface MultiWinShare {
+  /** Estimated win share per seat (sums to 100, one decimal). */
+  shares: number[];
+  /** low when the race is wide open, high when someone is nearly home. */
+  confidence: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Multiplayer win-share estimation (ENB-004): softmax over each seat's
+ * route deficit vs the leader, plus remaining-wall edge. Deterministic
+ * and instant (no fake Monte Carlo noise); labeled "estimated" in UI.
+ * Turn-order edge goes to the seat to move via a small tempo bonus.
+ */
+export function estimateMultiWinShare(
+  paths: number[],
+  wallsRemaining: number[],
+  turn: number,
+): MultiWinShare {
+  const n = paths.length;
+  if (n === 0) return { shares: [], confidence: 'low' };
+  const best = Math.min(...paths);
+  const weights = paths.map((p, i) => {
+    const deficit = p - best;
+    const wallEdge = ((wallsRemaining[i] ?? 0) - avg(wallsRemaining)) * 0.12;
+    const tempo = i === turn ? 0.25 : 0;
+    return Math.exp(-deficit * 0.55 + wallEdge + tempo);
+  });
+  const total = weights.reduce((s, w) => s + w, 0);
+  const shares = weights.map((w) => Math.round((w / total) * 1000) / 10);
+  // Renormalize rounding drift onto the leader.
+  const drift = Math.round((100 - shares.reduce((s, v) => s + v, 0)) * 10) / 10;
+  const leader = shares.indexOf(Math.max(...shares));
+  if (leader >= 0) shares[leader] = Math.round(((shares[leader] as number) + drift) * 10) / 10;
+  const spread = Math.max(...paths) - best;
+  const confidence = best <= 3 ? 'high' : spread >= 6 ? 'high' : spread >= 3 ? 'medium' : 'low';
+  return { shares, confidence };
+}
+
+function avg(xs: number[]): number {
+  if (xs.length === 0) return 0;
+  return xs.reduce((s, v) => s + v, 0) / xs.length;
+}

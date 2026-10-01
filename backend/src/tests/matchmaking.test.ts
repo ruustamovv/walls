@@ -44,3 +44,56 @@ describe('matchmaking queue', () => {
     assert.equal(await q.size(), 0);
   });
 });
+
+describe('matchmaking fairness (MTM-002)', () => {
+  it('holds back wide trust gaps until the queue ages', async () => {
+    const q = new MatchmakingQueue();
+    await q.join({ userId: 'saint', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, behavior: 100 });
+    await q.join({ userId: 'rough', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, behavior: 50 });
+    assert.equal(await q.tryMatch(base), null);
+    // After forty seconds the gap allowance (15 + 40) covers the 50 gap.
+    const pair = await q.tryMatch(base + 40_000);
+    assert.ok(pair !== null);
+  });
+
+  it('prefers closer trust when ratings tie', async () => {
+    const q = new MatchmakingQueue();
+    await q.join({ userId: 'head', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, behavior: 95 });
+    await q.join({ userId: 'near', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, behavior: 90 });
+    await q.join({ userId: 'far', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, behavior: 85 });
+    const pair = await q.tryMatch(base);
+    assert.ok(pair !== null);
+    const ids = [pair.a.userId, pair.b.userId].sort();
+    assert.deepEqual(ids, ['head', 'near']);
+  });
+
+  it('avoids immediate rematches, then relents after a minute', async () => {
+    const q = new MatchmakingQueue();
+    await q.join({ userId: 'a', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base });
+    await q.join({ userId: 'b', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base });
+    q.markPaired('a', 'b', base);
+    assert.equal(await q.tryMatch(base), null);
+    const pair = await q.tryMatch(base + 61_000);
+    assert.ok(pair !== null);
+  });
+
+  it('prefers same region, then goes cross-region', async () => {
+    const q = new MatchmakingQueue();
+    await q.join({ userId: 'head', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, region: 'Europe/Berlin' });
+    await q.join({ userId: 'far', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, region: 'America/New_York' });
+    await q.join({ userId: 'near', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base + 1, region: 'Europe/Berlin' });
+    const pair = await q.tryMatch(base + 1);
+    assert.ok(pair !== null);
+    const ids = [pair.a.userId, pair.b.userId].sort();
+    assert.deepEqual(ids, ['head', 'near']);
+  });
+
+  it('cross-region pairs after 20s when no local partner exists', async () => {
+    const q = new MatchmakingQueue();
+    await q.join({ userId: 'head', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, region: 'Europe/Berlin' });
+    await q.join({ userId: 'far', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base, region: 'America/New_York' });
+    assert.equal(await q.tryMatch(base), null);
+    const pair = await q.tryMatch(base + 21_000);
+    assert.ok(pair !== null);
+  });
+});

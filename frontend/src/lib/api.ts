@@ -37,6 +37,20 @@ export interface SessionUser {
   username: string;
   role: string;
   guest: boolean;
+  emailVerified?: boolean;
+}
+
+/**
+ * Coarse client locality for same-region matchmaking preference
+ * (IANA timezone, e.g. Europe/Berlin). Preference only, never a gate.
+ */
+export function clientRegion(): string | undefined {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return typeof tz === 'string' && tz.length > 0 ? tz.slice(0, 64) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface GameSnapshot {  id: string;
@@ -63,6 +77,8 @@ export interface GameSnapshot {  id: string;
   finishReason: 'goal' | 'timeout' | 'resign' | 'draw' | null;
   drawOfferBy: 0 | 1 | null;
   moveCount: number;
+  /** Echo of the most recently applied client action id (idempotency). */
+  lastActionId?: string | null;
   timeControlId: string;
   mode: string;
   createdAt: number;
@@ -96,6 +112,8 @@ export interface MultiSnapshot {
   placement: number[];
   finishReason: 'goal' | 'timeout' | 'resign' | null;
   moveCount: number;
+  /** Echo of the most recently applied client action id (idempotency). */
+  lastActionId?: string | null;
   timeControlId: string;
   mode: string;
   players: number;
@@ -113,10 +131,13 @@ export const api = {
   convert: (input: { email: string; username: string; password: string }) =>
     req<{ user: SessionUser }>('/api/v1/auth/convert', { method: 'POST', body: JSON.stringify(input) }),
   logout: () => req<{ ok: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
+  socketTicket: () => req<{ ticket: string; expiresInSec: number }>('/api/v1/socket/ticket', { method: 'POST' }),
   forgot: (email: string) => req<{ ok: boolean; message: string }>('/api/v1/auth/forgot', { method: 'POST', body: JSON.stringify({ email }) }),
   reset: (token: string, password: string) => req<{ ok: boolean }>('/api/v1/auth/reset', { method: 'POST', body: JSON.stringify({ token, password }) }),
+  verifyRequest: () => req<{ ok: boolean; mailed: boolean }>('/api/v1/auth/verify/request', { method: 'POST' }),
+  verifyConfirm: (token: string) => req<{ ok: boolean }>('/api/v1/auth/verify/confirm', { method: 'POST', body: JSON.stringify({ token }) }),
 
-  createGame: (input: { boardSize?: number; wallsPerPlayer?: number; timeControl?: string; opponentId?: string }) =>
+  createGame: (input: { boardSize?: number; wallsPerPlayer?: number; timeControl?: string; opponentId?: string; visibility?: string }) =>
     req<GameSnapshot>('/api/v1/games', { method: 'POST', body: JSON.stringify(input) }),
   game: (id: string) => req<GameSnapshot>(`/api/v1/games/${encodeURIComponent(id)}`),
   joinGame: (id: string) => req<GameSnapshot>(`/api/v1/games/${encodeURIComponent(id)}/join`, { method: 'POST' }),
@@ -130,25 +151,32 @@ export const api = {
     players: ({ id: string; username: string; rating: number } | null)[];
   }>(`/api/v1/games/${encodeURIComponent(id)}/meta`),
 
-  mmJoin: (input: { mode?: string; timeControl?: string }) =>
-    req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/join', { method: 'POST', body: JSON.stringify(input) }),
-  mmStatus: () => req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/status'),
+  mmJoin: (input: { mode?: string; timeControl?: string; region?: string }) =>
+    req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/join', { method: 'POST', body: JSON.stringify(input) }),  mmStatus: () => req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/status'),
   mmCancel: () => req<{ ok: boolean }>('/api/v1/matchmaking/cancel', { method: 'POST' }),
 
   profile: (username: string) => req<{
     username: string;
     joinedAt?: string;
     views?: number;
-    stats?: { seatWins: [number, number]; seatGames: [number, number]; streak: number; streakWon: boolean };
+    viewsWeek?: number;
+    viewsMonth?: number;
+    frame?: string;
+    stats?: { seatWins: [number, number]; seatGames: [number, number]; streak: number; streakWon: boolean; winRate?: number; timeouts?: number; resignations?: number; avgDurationSec?: number };
+    fairPlay?: { score: number; level: 'exemplary' | 'good' | 'caution' | 'restricted' };
     ratings: { mode: string; rating: number; peak: number; games: number; wins: number; losses: number }[];
     recentGames: { id: string; mode: string; timeControl: string; status: string; result: { winnerSeat: 0 | 1 | null; reason: string } | null; createdAt: string }[];
     degraded?: boolean;
   }>(`/api/v1/profiles/${encodeURIComponent(username)}`),
-  ratingHistory: (username: string, mode: string) => req<{
-    mode: string;
+  ratingHistory: (username: string, mode: string) => req<{    mode: string;
     points: { before: number; after: number; at: string }[];
     degraded?: boolean;
   }>(`/api/v1/profiles/${encodeURIComponent(username)}/ratings/${encodeURIComponent(mode)}/history`),
+  xp: (username: string) => req<{
+    username: string; xp: number; level: number;
+    breakdown: { finishedGames: number; puzzleSolves: number; lessons: number };
+    degraded?: boolean;
+  }>(`/api/v1/profiles/${encodeURIComponent(username)}/xp`),
   leaderboard: (mode = 'blitz') => req<{
     mode: string;
     entries: { rank: number; username: string; rating: number; games: number; wins: number }[];
@@ -180,10 +208,45 @@ export const api = {
   }>('/api/v1/puzzles/daily/attempt', { method: 'POST', body: JSON.stringify({ wall }) }),
 
   friends: () => req<{ friends: { id: string; username: string; online: boolean }[] }>('/api/v1/friends'),
+  multiPuzzleDaily: () => req<{
+    puzzleId: string;
+    date: string;
+    prompt: string;
+    players: number;
+    size: number;
+    turn: number;
+    pawns: { r: number; c: number }[];
+    walls: { r: number; c: number; orientation: 'h' | 'v' }[];
+    wallsRemaining: number[];
+    needGain: number;
+  }>('/api/v1/puzzles/multi/daily'),
+  multiPuzzleAttempt: (wall: { r: number; c: number; orientation: 'h' | 'v' }) => req<{
+    solved: boolean;
+    gain: number;
+    need: number;
+    legal: boolean;
+    solution?: { r: number; c: number; orientation: 'h' | 'v' };
+  }>(`/api/v1/puzzles/multi/attempt`, { method: 'POST', body: JSON.stringify({ wall }) }),
   friendRequests: () => req<{ requests: { id: string; from: string }[] }>('/api/v1/friends/requests'),
   friendRequest: (username: string) => req<{ requestId: string; to: string }>('/api/v1/friends/request', { method: 'POST', body: JSON.stringify({ username }) }),
   friendAccept: (requestId: string) => req<{ ok: boolean }>('/api/v1/friends/accept', { method: 'POST', body: JSON.stringify({ requestId }) }),
   friendBlock: (username: string) => req<{ ok: boolean }>('/api/v1/friends/block', { method: 'POST', body: JSON.stringify({ username }) }),
+  dmThreads: () => req<{
+    threads: { username: string; online: boolean; lastBody: string | null; lastAt: string | null }[];
+  }>('/api/v1/dms'),
+  dmHistory: (username: string) => req<{
+    messages: { _id: string; userId: string; body: string; createdAt: string }[];
+  }>(`/api/v1/dms/${encodeURIComponent(username)}`),
+  dmSend: (username: string, body: string) => req<{
+    message: { _id: string; userId: string; body: string; createdAt: string };
+  }>(`/api/v1/dms/${encodeURIComponent(username)}`, { method: 'POST', body: JSON.stringify({ body }) }),
+  cosmetics: () => req<{
+    frames: { id: string; kind: string; name: string; ring: string; premium: boolean; owned: boolean }[];
+    equipped: string;
+  }>('/api/v1/cosmetics'),
+  cosmeticEquip: (id: string) => req<{ ok: boolean; equipped: string }>(
+    `/api/v1/cosmetics/${encodeURIComponent(id)}/equip`, { method: 'POST' },
+  ),
   heartbeat: () => req<{ ok: boolean }>('/api/v1/presence/heartbeat', { method: 'POST' }),
   announcements: () => req<{
     announcements: { _id: string; title: string; body: string; audience: string }[];
@@ -193,11 +256,13 @@ export const api = {
   ),
   accountSettings: () => req<{
     userId: string; showRating: boolean; allowChallenges: boolean;
-    chatScope: string; notifyMatches: boolean; notifyResults: boolean;
+    chatScope: string; profileVisibility: string; historyVisibility: string;
+    notifyMatches: boolean; notifyResults: boolean;
   }>('/api/v1/settings'),
   accountSettingsSave: (patch: Record<string, unknown>) => req<{
     userId: string; showRating: boolean; allowChallenges: boolean;
-    chatScope: string; notifyMatches: boolean; notifyResults: boolean;
+    chatScope: string; profileVisibility: string; historyVisibility: string;
+    notifyMatches: boolean; notifyResults: boolean;
   }>('/api/v1/settings', { method: 'PUT', body: JSON.stringify(patch) }),
   passwordChange: (current: string, next: string) => req<{ ok: boolean }>(
     '/api/v1/auth/password', { method: 'POST', body: JSON.stringify({ current, next }) },
@@ -301,6 +366,29 @@ export const api = {
     budgetMs: number;
     baseName: string;
   }>('/api/v1/nemesis'),
+  mirror: () => req<{
+    games: number;
+    moves: number;
+    wallRate: number;
+    avgGain: number;
+    efficiency: number;
+    explanation: string;
+    weights: { pathAdvantage: number; wallAdvantage: number; mobility: number };
+    wallCandidates: number;
+    noise: number;
+    wallBias: number;
+    replySearch: boolean;
+    budgetMs: number;
+  }>('/api/v1/mirror'),
+  ghostGames: () => req<{
+    games: { gameId: string; timeControl: string; moves: number; result: string | null; createdAt: unknown }[];
+  }>('/api/v1/ghost/games'),
+  ghostGame: (id: string) => req<{
+    gameId: string;
+    size: number;
+    wallsPerPlayer: number;
+    actions: ({ type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } })[];
+  }>(`/api/v1/ghost/games/${encodeURIComponent(id)}`),
   trainingMine: () => req<{
     puzzles: {
       puzzleId: string;
@@ -357,8 +445,8 @@ export const api = {
     rounds: { round: number; matches: { a: string | null; b: string | null; winner: string | null }[] }[];
     standings: { userId: string; username: string | null; wins: number; losses: number; points: number }[];
   }>(`/api/v1/tournaments/${encodeURIComponent(id)}`),
-  tournamentCreate: (title: string, format: string) => req<{ tournament: { _id: string } }>(
-    '/api/v1/tournaments', { method: 'POST', body: JSON.stringify({ title, format }) },
+  tournamentCreate: (title: string, format: string, recurrence?: string) => req<{ tournament: { _id: string } }>(
+    '/api/v1/tournaments', { method: 'POST', body: JSON.stringify({ title, format, ...(recurrence !== undefined ? { recurrence } : {}) }) },
   ),
   tournamentJoin: (id: string) => req<{ ok: boolean }>(`/api/v1/tournaments/${encodeURIComponent(id)}/join`, { method: 'POST' }),
   tournamentOpen: (id: string) => req<{ ok: boolean }>(`/api/v1/tournaments/${encodeURIComponent(id)}/open`, { method: 'POST' }),
@@ -377,10 +465,14 @@ export const api = {
   premium: () => req<{
     tier: 'free' | 'premium';
     entitlements: string[];
-    payments: 'disabled';
+    payments: 'disabled' | 'stripe';
     reason: string;
     freePreview?: boolean;
+    checkoutReady?: boolean;
   }>('/api/v1/premium/status'),
+  premiumCheckout: () => req<{ id: string; url: string | null }>(
+    '/api/v1/premium/checkout', { method: 'POST' },
+  ),
   challenge: (username: string, timeControl = '3+1', mode = 'ranked') => req<{ ok: boolean }>(
     '/api/v1/challenges', { method: 'POST', body: JSON.stringify({ username, timeControl, mode }) },
   ),
@@ -489,7 +581,7 @@ export const api = {
     '/api/v1/ai/commentate', { method: 'POST', body: JSON.stringify({ gameId }) },
   ),
 
-  multiCreate: (input: { players?: number; boardSize?: number; wallsPerPlayer?: number; timeControl?: string }) =>
+  multiCreate: (input: { players?: number; boardSize?: number; wallsPerPlayer?: number; timeControl?: string; visibility?: string }) =>
     req<MultiSnapshot>('/api/v1/multi/games', { method: 'POST', body: JSON.stringify(input) }),
   multiGame: (id: string) => req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}`),
   multiJoin: (id: string) => req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}/join`, { method: 'POST' }),

@@ -3,6 +3,7 @@ packages:
   - 'admin'
   - 'backend'
   - 'engine/typescript'
+  - 'tests'
 allowBuilds:
   argon2: true
   esbuild: true

@@ -19,11 +19,12 @@ import { defaultRating, updateRatings } from '../ratings/glicko2.js';
 import { logger } from '../../common/logging/logger.js';
 import type { GameRecord } from './service.js';
 
-/** Rating bucket per time control (Bullet/Blitz/Rapid split). */
+/** Rating bucket per time control (Bullet/Blitz/Rapid/Classic split). */
 export function ratingModeFor(timeControlId: string): string {
   if (timeControlId.startsWith('1+')) return 'bullet';
   if (timeControlId.startsWith('3+')) return 'blitz';
   if (timeControlId.startsWith('5+')) return 'rapid';
+  if (timeControlId.startsWith('10+')) return 'classic';
   return 'casual';
 }
 
@@ -44,6 +45,11 @@ export async function settleFinishedGame(g: GameRecord): Promise<void> {
     const mode = ratingModeFor(g.timeControlId);
     const ratings = new RatingRepository(db);
     const [aId, bId] = g.playerIds as [string, string];
+    // Conduct: timeout flags the side to move, everything else is a clean finish.
+    {
+      const { recordGameConduct } = await import('../fairplay/outcomes.js');
+      void recordGameConduct([aId, bId], g.state.turn, g.finishReason);
+    }
     // Guests never gain (or cost) ratings — any guest presence makes the
     // game unrated, though replays + result notifications still persist.
     const { getAuthService } = await import('../auth/service.js');
@@ -72,8 +78,7 @@ export async function settleFinishedGame(g: GameRecord): Promise<void> {
       });
     }
 
-    const { NotificationRepository } = await import('../../database/mongodb/repositories/extended.repositories.js');
-    const { SettingsRepository } = await import('../../database/mongodb/repositories/settings.repository.js');
+    const { NotificationRepository } = await import('../../database/mongodb/repositories/extended.repositories.js');    const { SettingsRepository } = await import('../../database/mongodb/repositories/settings.repository.js');
     const notifs = new NotificationRepository(db);
     const settings = new SettingsRepository(db);
     const outcomeOf = (seat: 0 | 1): string =>
@@ -107,7 +112,7 @@ export async function settleFinishedGame(g: GameRecord): Promise<void> {
         ),
         result: { winnerSeat: g.winnerSeat, reason: g.finishReason ?? 'goal' },
         hash: hashState(g.state),
-        visibility: 'public',
+        visibility: g.visibility,
       });
     }
     g.settled = true;

@@ -31,7 +31,16 @@ export function useClubChat(clubId: string, userId: string | null, member: boole
     api.clubChat(clubId)
       .then((r) => setMessages(r.messages))
       .catch(() => undefined);
-    const socket = io(wsBase(), { path: '/socket', auth: { userId }, reconnection: true, reconnectionAttempts: 10 });
+    const socket = io(wsBase(), {
+      path: '/socket',
+      auth: (cb: (auth: Record<string, string>) => void) => {
+        api.socketTicket()
+          .then((t) => cb({ ticket: t.ticket }))
+          .catch(() => cb({ userId }));
+      },
+      reconnection: true,
+      reconnectionAttempts: 10,
+    });
     socketRef.current = socket;
     socket.on('connect', () => {
       setConnected(true);

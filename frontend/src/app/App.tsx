@@ -11,6 +11,7 @@ const LoginPage = lazy(() => import('../pages/login/LoginPage.js'));
 const SignupPage = lazy(() => import('../pages/login/SignupPage.js'));
 const ForgotPage = lazy(() => import('../pages/login/ForgotPage.js').then((m) => ({ default: m.ForgotPage })));
 const ResetPage = lazy(() => import('../pages/login/ForgotPage.js').then((m) => ({ default: m.ResetPage })));
+const VerifyPage = lazy(() => import('../pages/login/ForgotPage.js').then((m) => ({ default: m.VerifyPage })));
 const LobbyPage = lazy(() => import('../pages/lobby/LobbyPage.js'));
 const PlayPage = lazy(() => import('../pages/play/PlayPage.js'));
 const LocalGamePage = lazy(() => import('../pages/play/LocalGamePage.js'));
@@ -41,8 +42,34 @@ const SettingsPage = lazy(() => import('../pages/settings/SettingsPage.js'));
 import { BRAND } from '../lib/brand.js';
 import { useT } from '../lib/i18n.js';
 import { useSession } from '../stores/session.js';
+import { useSettings } from '../stores/settings.js';
 import { Avatar, Logo } from '../components/ui/primitives.js';
 import { DevTodoDrawer } from '../components/dev/DevTodoDrawer.js';
+import { useToasts } from '../stores/toasts.js';
+
+function Toaster() {
+  const items = useToasts((s) => s.items);
+  const dismiss = useToasts((s) => s.dismiss);
+  if (items.length === 0) return null;
+  return (
+    <div aria-live="polite" style={{ position: 'fixed', bottom: 18, right: 14, zIndex: 95, display: 'grid', gap: 8, width: 'min(340px, calc(100vw - 28px))' }}>
+      {items.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => dismiss(t.id)}
+          style={{
+            textAlign: 'left', background: 'var(--surface)', color: 'var(--ink)',
+            border: '1px solid var(--line)', borderLeft: `4px solid ${t.kind === 'good' ? 'var(--good)' : t.kind === 'bad' ? 'var(--bad)' : 'var(--primary)'}`,
+            borderRadius: 'var(--radius-md)', padding: '10px 12px', fontSize: 13, fontWeight: 600,
+            boxShadow: 'var(--shadow-pop)', cursor: 'pointer',
+          }}
+        >
+          {t.text}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function Icon({ d }: { d: string }) {
   return (
@@ -139,57 +166,85 @@ function Sidebar() {
   const t = useT();
   const isAdmin = useIsAdmin();
   const unread = useUnread();
-  const visible = ITEMS.filter((i) => (!i.adminOnly || isAdmin) && (!i.authOnly || user !== null));
+  const collapsed = useSettings((s) => s.navCollapsed);
+  const setCollapsed = useSettings((s) => s.setNavCollapsed);
+  // Guests see the public shelf; account features prompt registration (SHL-006).
+  const isGuest = user?.guest === true;
+  const visible = ITEMS.filter((i) => (!i.adminOnly || isAdmin) && (!i.authOnly || (user !== null && !isGuest)));
   return (
     <aside className="nexus-sidebar" style={{
-      width: 248, flexShrink: 0, borderRight: '1px solid var(--line)', background: 'var(--surface)',
+      width: collapsed ? 76 : 248, flexShrink: 0, borderRight: '1px solid var(--line)', background: 'var(--surface)',
       position: 'sticky', top: 0, height: '100vh', display: 'flex', flexDirection: 'column', padding: 'var(--space-4)',
+      transition: 'width var(--dur-med) ease',
     }}>
-      <Link to="/" style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', marginBottom: 'var(--space-4)' }} aria-label={BRAND.APP_NAME}>
-        <Logo size={32} />
-        <span className="font-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: '.02em' }}>
-          {BRAND.APP_SHORT_NAME}
-        </span>
-      </Link>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+        <Link to="/" style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', flex: 1, minWidth: 0 }} aria-label={BRAND.APP_NAME}>
+          <Logo size={32} />
+          {!collapsed && (
+            <span className="font-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: '.02em' }}>
+              {BRAND.APP_SHORT_NAME}
+            </span>
+          )}
+        </Link>
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
+          style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 8, width: 28, height: 28, color: 'var(--muted)', flexShrink: 0 }}
+        >
+          {collapsed ? '»' : '«'}
+        </button>
+      </div>
       <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
         {visible.map((i) => (
-          <NavLink key={i.to} to={i.to} style={({ isActive }) => itemStyle(isActive)}>
-            <Icon d={PATHS[i.icon]} />{t(i.i18n)}
+          <NavLink key={i.to} to={i.to} title={collapsed ? t(i.i18n) : undefined} style={({ isActive }) => itemStyle(isActive)}>
+            <Icon d={PATHS[i.icon]} />{!collapsed && t(i.i18n)}
           </NavLink>
         ))}
         {user !== null && (
           <>
-            <NavLink to="/notifications" style={({ isActive }) => itemStyle(isActive)}>
+            <NavLink to="/notifications" title={collapsed ? 'Inbox' : undefined} style={({ isActive }) => itemStyle(isActive)}>
               <Icon d="M6 16v-5a4 4 0 018 0v5l1.5 2.5h-11zM8.5 19a1.5 1.5 0 003 0" />
-              Inbox
+              {!collapsed && 'Inbox'}
               {unread > 0 && (
-                <span aria-label={`${unread} unread`} style={{ marginLeft: 'auto', background: 'var(--primary)', color: 'var(--primary-ink)', borderRadius: 999, fontSize: 11, fontWeight: 800, padding: '1px 7px' }}>
+                <span aria-label={`${unread} unread`} style={{ marginLeft: collapsed ? 0 : 'auto', background: 'var(--primary)', color: 'var(--primary-ink)', borderRadius: 999, fontSize: 11, fontWeight: 800, padding: '1px 7px' }}>
                   {unread > 99 ? '99+' : unread}
                 </span>
               )}
             </NavLink>
-            <NavLink to="/search" style={({ isActive }) => itemStyle(isActive)}>
+            <NavLink to="/search" title={collapsed ? 'Search' : undefined} style={({ isActive }) => itemStyle(isActive)}>
               <Icon d="M9 3a6 6 0 104.2 10.3L18 18l1.5-1.5-4.6-4.6A6 6 0 009 3zm0 2a4 4 0 110 8 4 4 0 010-8z" />
-              Search
+              {!collapsed && 'Search'}
             </NavLink>
           </>
         )}
       </nav>
       <div style={{ borderTop: '1px solid var(--line)', paddingTop: 'var(--space-3)' }}>
         {user === null ? (
-          <Link to="/login" style={{ ...itemStyle(false), fontWeight: 700 }}>{t('login')}</Link>
+          collapsed
+            ? <Link to="/login" title={t('login')} aria-label={t('login')} style={{ ...itemStyle(false), justifyContent: 'center' }}><Icon d="M10 3a7 7 0 017 7v1h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a7 7 0 01-14 0H2a1 1 0 01-1-1v-3a1 1 0 011-1h1V10a7 7 0 017-7z" /></Link>
+            : <Link to="/login" style={{ ...itemStyle(false), fontWeight: 700 }}>{t('login')}</Link>
+        ) : isGuest ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {!collapsed && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Guest — progress not saved</span>}
+            <Link to="/signup?next=/play" style={{ ...itemStyle(false), fontWeight: 700, justifyContent: collapsed ? 'center' : undefined }} title="Create an account">
+              <Icon d="M10 3a7 7 0 017 7v1h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a7 7 0 01-14 0H2a1 1 0 01-1-1v-3a1 1 0 011-1h1V10a7 7 0 017-7z" />{!collapsed && 'Register'}
+            </Link>
+          </div>
         ) : (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Link to="/profile/me" style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', fontWeight: 700, flex: 1, minWidth: 0 }}>
+            <Link to="/profile/me" title={collapsed ? user.username : undefined} style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', fontWeight: 700, flex: 1, minWidth: 0, justifyContent: collapsed ? 'center' : undefined }}>
               <Avatar name={user.username} size={30} />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</span>
+              {!collapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</span>}
             </Link>
+            {!collapsed && (
               <button
                 onClick={() => { void logout().then(() => navigate('/')); }}
                 style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13 }}
               >
                 {t('logout')}
               </button>
+            )}
           </div>
         )}
       </div>
@@ -229,7 +284,7 @@ function BottomTabs() {
   const { user } = useSession();
   const t = useT();
   const isAdmin = useIsAdmin();
-  const visible = MOBILE_TABS.filter((i) => (!i.adminOnly || isAdmin) && (!i.authOnly || user !== null));
+  const visible = MOBILE_TABS.filter((i) => (!i.adminOnly || isAdmin) && (!i.authOnly || (user !== null && user.guest !== true)));
   return (
     <nav className="nexus-tabs" aria-label="Primary" style={{
       display: 'none', position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
@@ -344,12 +399,23 @@ export default function App() {
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex' }}>
+      <a
+        href="#main"
+        style={{
+          position: 'absolute', left: -9999, top: 0, zIndex: 100,
+          background: 'var(--surface)', color: 'var(--ink)', padding: '8px 14px',
+        }}
+        onFocus={(e) => { (e.target as HTMLElement).style.left = '8px'; }}
+        onBlur={(e) => { (e.target as HTMLElement).style.left = '-9999px'; }}
+      >
+        Skip to content
+      </a>
       <Telemetry />
       <Broadcast />
       <Sidebar />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <TopBar onMenu={() => setDrawer(true)} />
-        <main style={{ maxWidth: 1280, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
+        <main id="main" style={{ maxWidth: 1280, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
           <Suspense fallback={<div style={{ padding: 24 }}><Spinner /></div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -357,6 +423,7 @@ export default function App() {
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPage />} />
             <Route path="/reset-password" element={<ResetPage />} />
+            <Route path="/verify-email" element={<VerifyPage />} />
             <Route path="/lobby" element={<LobbyPage />} />
             <Route path="/play" element={<PlayPage />} />
           <Route path="/play/local" element={<LocalGamePage />} />
@@ -394,6 +461,7 @@ export default function App() {
         </main>
       </div>
       <BottomTabs />
+      <Toaster />
       <DevTodoDrawer />
       {drawer && (
         <div role="dialog" aria-label="Menu" onClick={() => setDrawer(false)} style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'rgba(8,10,16,.5)' }}>
@@ -403,7 +471,7 @@ export default function App() {
               <span className="font-display" style={{ fontWeight: 700, fontSize: 19 }}>{BRAND.APP_SHORT_NAME}</span>
             </Link>
             <nav aria-label="Drawer" style={{ display: 'flex', flexDirection: 'column', gap: 2 }} onClick={() => setDrawer(false)}>
-              {ITEMS.filter((i) => (!i.adminOnly || amAdmin) && (!i.authOnly || me !== null)).map((i) => (
+              {ITEMS.filter((i) => (!i.adminOnly || amAdmin) && (!i.authOnly || (me !== null && me.guest !== true))).map((i) => (
                 <NavLink key={i.to} to={i.to} style={({ isActive }) => itemStyle(isActive)}>
                   <Icon d={PATHS[i.icon]} />{t(i.i18n)}
                 </NavLink>

@@ -11,6 +11,7 @@ import {
   applyMultiMove,
   createMultiGame,
   defaultSides,
+  presetForPlayers,
   shortestToSide,
   validateMultiMove,
   MULTI_RULES_VERSION,
@@ -18,6 +19,7 @@ import {
   type MultiState,
 } from '../../../../engine/typescript/dist/index.js';
 import { ValidationError, NotFoundError, ForbiddenError } from '../../common/errors/errors.js';
+import type { GameVisibility } from '../games/service.js';
 import { appConfig, getTimeControl } from '../../config/app.js';
 
 export type MultiGameStatus = 'waiting' | 'active' | 'finished' | 'aborted';
@@ -38,6 +40,10 @@ export interface MultiGameRecord {
   placement: number[];
   finishReason: MultiFinishReason;
   settled: boolean;
+  /** Client action id of the most recently applied intent (echo for dedupe). */
+  lastActionId: string | null;
+  /** Who may spectate / open replays: public, friends, unlisted (link), private (players). */
+  visibility: GameVisibility;
   clock: { remainingMs: number[]; lastTickAt: number; incrementMs: number };
   createdAt: number;
   updatedAt: number;
@@ -68,6 +74,8 @@ function toAction(input: { type: 'move'; to: { r: number; c: number } } | { type
 
 export class MultiGamesService {
   private readonly games = new Map<string, MultiGameRecord>();
+  /** Recently seen client action ids per game (bounded) for dedupe. */
+  private readonly seenActionIds = new Map<string, string[]>();
 
   count(): number {
     return this.games.size;
@@ -86,16 +94,18 @@ export class MultiGamesService {
     boardSize?: number;
     wallsPerPlayer?: number;
     timeControl?: string;
+    visibility?: GameVisibility;
   }): MultiGameRecord {
     const players = input.players ?? 4;
-    if (!Number.isInteger(players) || players < 2 || players > 4) {
-      throw new ValidationError('players must be 2, 3 or 4');
+    if (!Number.isInteger(players) || players < 2 || players > 6) {
+      throw new ValidationError('players must be 2–6');
     }
-    const boardSize = input.boardSize ?? (players >= 4 ? 9 : 13);
-    const wallsPerPlayer = input.wallsPerPlayer ?? (players >= 4 ? 5 : 10);
+    const preset = presetForPlayers(players);
+    const boardSize = input.boardSize ?? preset.size;
+    const wallsPerPlayer = input.wallsPerPlayer ?? preset.wallsPerPlayer;
     const tc = getTimeControl(input.timeControl ?? appConfig.defaultTimeControl);
     if (tc === null) throw new ValidationError('Unknown time control');
-    if (!Number.isInteger(boardSize) || boardSize < 5 || boardSize > 19) {
+    if (!Number.isInteger(boardSize) || boardSize < 5 || boardSize > 25) {
       throw new ValidationError('Invalid board size');
     }
     if (!Number.isInteger(wallsPerPlayer) || wallsPerPlayer < 0 || wallsPerPlayer > 30) {
@@ -117,6 +127,8 @@ export class MultiGamesService {
       placement: [],
       finishReason: null,
       settled: false,
+      lastActionId: null,
+      visibility: input.visibility ?? 'public',
       clock: {
         remainingMs: Array.from({ length: players }, () => tc.baseSec * 1000),
         lastTickAt: now,
@@ -169,9 +181,18 @@ export class MultiGamesService {
     gameId: string,
     userId: string,
     input: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } },
+    opts: { actionId?: string; baseMoveNumber?: number } = {},
   ): MultiGameRecord {
     const g = this.get(gameId);
     if (g.status !== 'active') throw new ValidationError('Game is not active');
+    if (opts.actionId !== undefined && (this.seenActionIds.get(gameId) ?? []).includes(opts.actionId)) {
+      // Dedupe before seat/turn checks (see GamesService.play): retries of
+      // an applied intent must replay the record, not error on flipped turn.
+      return g;
+    }
+    if (opts.baseMoveNumber !== undefined && opts.baseMoveNumber !== g.actions.length) {
+      throw new ValidationError('Stale action — resync and retry');
+    }
     const seat = g.playerIds.indexOf(userId);
     if (seat === -1) throw new ForbiddenError('You are not a player of this game');
     if (g.state.turn !== seat) throw new ValidationError('Not your turn');
@@ -183,6 +204,12 @@ export class MultiGamesService {
     const result = applyMultiMove(g.state, action);
     g.state = result.state;
     g.actions.push(action);
+    if (opts.actionId !== undefined) {
+      const seen = this.seenActionIds.get(gameId) ?? [];
+      seen.push(opts.actionId);
+      this.seenActionIds.set(gameId, seen.slice(-50));
+      g.lastActionId = opts.actionId;
+    }
     g.clock.remainingMs[seat] = (g.clock.remainingMs[seat] ?? 0) + g.clock.incrementMs;
     g.clock.lastTickAt = Date.now();
     g.updatedAt = Date.now();
@@ -234,6 +261,9 @@ export class MultiGamesService {
     placement: number[];
     finishReason: MultiFinishReason;
     moveCount: number;
+    /** Echo of the most recently applied client action id (idempotency). */
+    lastActionId: string | null;
+    visibility: GameVisibility;
     timeControlId: string;
     mode: string;
     players: number;
@@ -253,6 +283,8 @@ export class MultiGamesService {
       placement: [...g.placement],
       finishReason: g.finishReason,
       moveCount: g.actions.length,
+      lastActionId: g.lastActionId,
+      visibility: g.visibility,
       timeControlId: g.timeControlId,
       mode: g.mode,
       players: g.state.players,

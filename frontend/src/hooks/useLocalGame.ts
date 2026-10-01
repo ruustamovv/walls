@@ -22,6 +22,11 @@ export interface LocalGameOptions {
   botId?: string;
   /** Custom personality (e.g. Nemesis) when botId is not a stock bot. */
   customBot?: BotDef;
+  /**
+   * Scripted ghost driver (AIC-007): called on the bot's turn first; return
+   * an action to replay it, or null to fall back to the personality search.
+   */
+  scripted?: (state: GameState, moveNumber: number) => Action | null;
   /** Starting clock per side in ms (0 = untimed). */
   clockMs?: number;
   incrementMs?: number;
@@ -50,7 +55,7 @@ interface LocalGameState {
 }
 
 export function useLocalGame(opts: LocalGameOptions): LocalGame {
-  const { size, wallsPerPlayer, mode, botId, customBot, clockMs = 0, incrementMs = 0, from } = opts;
+  const { size, wallsPerPlayer, mode, botId, customBot, scripted, clockMs = 0, incrementMs = 0, from } = opts;
   const [state, setState] = useState<GameState>(() => from !== undefined ? { ...from.state } : createGame({ size, wallsPerPlayer }));
   const [actions, setActions] = useState<Action[]>(() => (from !== undefined ? [...from.actions] : []));
   const [clocks, setClocks] = useState<[number, number]>([clockMs, clockMs]);
@@ -195,17 +200,23 @@ export function useLocalGame(opts: LocalGameOptions): LocalGame {
 
   // Bot driver (adaptive budget: browser cap keeps UI fluid, clock-aware
   // shrink prevents flag-burn; calibration CLI still runs full budgets).
+  // A scripted ghost action wins when legal; otherwise the personality
+  // search answers (so diverged games keep playing sensibly).
   useEffect(() => {
     if (mode !== 'bot' || over || state.turn !== 1) return;
-    const def = getBot(botId ?? 'rookie') ?? (botId === 'nemesis' ? customBot ?? null : null);
+    const def = getBot(botId ?? 'rookie')
+      ?? ((botId === 'nemesis' || botId === 'mirror' || botId === 'ghost') ? customBot ?? getBot('rookie') : null);
     if (def === null || def === undefined) return;
     setBotThinking(true);
     const id = setTimeout(() => {
       try {
-        const action = botAction(def, state, seedBase.current + state.moveNumber, {
-          ...(clockOn ? { clockMsLeft: clocks[1] } : {}),
-          hardCapMs: 800,
-        });
+        const ghost = scripted?.(state, state.moveNumber) ?? null;
+        const action = ghost !== null && validateMove(state, ghost).ok
+          ? ghost
+          : botAction(def, state, seedBase.current + state.moveNumber, {
+            ...(clockOn ? { clockMsLeft: clocks[1] } : {}),
+            hardCapMs: 800,
+          });
         setBotThinking(false);
         apply(action);
       } catch {
@@ -213,7 +224,7 @@ export function useLocalGame(opts: LocalGameOptions): LocalGame {
       }
     }, 350);
     return () => clearTimeout(id);
-  }, [mode, over, state, botId, customBot, apply, clockOn, clocks]);
+  }, [mode, over, state, botId, customBot, scripted, apply, clockOn, clocks]);
 
   return useMemo(() => ({
     state, actions, clocks, clockOn, message, botThinking, winnerSeat, reason, startedAt,

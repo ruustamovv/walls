@@ -13,6 +13,13 @@ function wsBase(): string {
   return env?.['VITE_WS_URL'] ?? window.location.origin;
 }
 
+/** Client operation id for idempotent retries (RTG-003). */
+export function newActionId(): string {
+  const g = globalThis.crypto;
+  if (typeof g?.randomUUID === 'function') return g.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export interface ChatMessage {
   from: string;
   body: string;
@@ -47,6 +54,7 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const snapshotRef = useRef<GameSnapshot | null>(null);
   // Interpolated display clocks: anchored to the last authoritative
   // snapshot, ticked locally each rendered second. Server resyncs win.
   const [clocks, setClocks] = useState<[number, number]>([0, 0]);
@@ -54,6 +62,7 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
 
   const ingest = useCallback((snap: GameSnapshot) => {
     setSnapshot(snap);
+    snapshotRef.current = snap;
     setError(null);
     anchorRef.current = {
       at: Date.now(),
@@ -93,9 +102,15 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
 
   useEffect(() => {
     if (userId === null) return;
+    // Fresh single-use ticket on EVERY (re)connection: redeemed tickets
+    // cannot be replayed, so the auth callback refetches each time.
     const socket = io(wsBase(), {
       path: '/socket',
-      auth: { userId },
+      auth: (cb: (auth: Record<string, string>) => void) => {
+        api.socketTicket()
+          .then((t) => cb({ ticket: t.ticket }))
+          .catch(() => cb({ userId }));
+      },
       reconnectionAttempts: 10,
       reconnectionDelay: 800,
     });
@@ -162,11 +177,21 @@ export function useOnlineGame(gameId: string, userId: string | null): OnlineGame
   }, []);
 
   const sendMove = useCallback((to: Pos) => {
-    socketRef.current?.emit('game:move', { gameId, action: { type: 'move', to } });
+    socketRef.current?.emit('game:move', {
+      gameId,
+      action: { type: 'move', to },
+      actionId: newActionId(),
+      ...(snapshotRef.current !== null ? { baseMoveNumber: snapshotRef.current.state.moveNumber } : {}),
+    });
   }, [gameId]);
 
   const sendWall = useCallback((wall: Wall) => {
-    socketRef.current?.emit('game:wall', { gameId, action: { type: 'wall', wall } });
+    socketRef.current?.emit('game:wall', {
+      gameId,
+      action: { type: 'wall', wall },
+      actionId: newActionId(),
+      ...(snapshotRef.current !== null ? { baseMoveNumber: snapshotRef.current.state.moveNumber } : {}),
+    });
   }, [gameId]);
 
   const sendResign = useCallback(() => {

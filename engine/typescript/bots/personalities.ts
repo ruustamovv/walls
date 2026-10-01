@@ -40,7 +40,7 @@ export const BOTS: BotDef[] = [
   bot({
     id: 'rookie', name: 'Rookie', rating: 600, difficulty: 1,
     style: 'Gentle teacher', description: 'Learning the ropes. Mostly runs forward, rarely walls, often wanders.',
-    weights: { ...BALANCED_WEIGHTS }, wallCandidates: 4, noise: 14, wallBias: 0.4, replySearch: false, budgetMs: 20,
+    weights: { ...BALANCED_WEIGHTS }, wallCandidates: 3, noise: 20, wallBias: 0.4, replySearch: false, budgetMs: 20,
   }),
   bot({
     id: 'runner', name: 'Runner', rating: 900, difficulty: 1,
@@ -115,7 +115,7 @@ export const BOTS: BotDef[] = [
   bot({
     id: 'legend', name: 'Legend', rating: 2600, difficulty: 5,
     style: 'Living wall', description: 'Sees choke points three tempi early. Legends are rarely beaten.',
-    weights: { pathAdvantage: 13, wallAdvantage: 1.0, mobility: 0.6 }, wallCandidates: 160, noise: 0.05, wallBias: 1.0, replySearch: true, budgetMs: 1600,
+    weights: { pathAdvantage: 13, wallAdvantage: 1.0, mobility: 0.6 }, wallCandidates: 160, noise: 0.05, wallBias: 1.0, replySearch: true, replyWalls: true, budgetMs: 1600,
   }),
   bot({
     id: 'mythic', name: 'Mythic', rating: 2800, difficulty: 5,

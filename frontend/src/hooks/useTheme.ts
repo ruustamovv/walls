@@ -5,14 +5,22 @@
 import { useEffect } from 'react';
 import { useSettings } from '../stores/settings.js';
 
-export type ThemeName = 'site' | 'arena';
+export type ThemeName = 'site' | 'arena' | 'slate' | 'warm' | 'contrast';
+
+const THEME_COLORS: Record<ThemeName, string> = {
+  site: '#f7f5f0',
+  arena: '#0b0e14',
+  slate: '#eef1f4',
+  warm: '#faf4e8',
+  contrast: '#000000',
+};
 
 function apply(theme: ThemeName): ThemeName {
   const root = document.documentElement;
   const prev = (root.dataset['theme'] as ThemeName | undefined) ?? 'site';
   root.dataset['theme'] = theme;
   document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', theme === 'arena' ? '#0b0e14' : '#f7f5f0');
+    ?.setAttribute('content', THEME_COLORS[theme] ?? '#f7f5f0');
   return prev;
 }
 

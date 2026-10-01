@@ -17,6 +17,7 @@ export class TournamentRepository {
   async create(input: {
     title: string; mode?: string; timeControl?: string; startAt?: Date; endAt?: Date;
     format?: TournamentDoc['format']; rounds?: number; playersCap?: number; ownerId?: string;
+    recurrence?: 'none' | 'daily' | 'weekly'; edition?: number;
   }): Promise<TournamentDoc> {
     const format = input.format ?? 'single-elim';
     const res = await this.db.collection(COLLECTIONS.tournaments).insertOne({
@@ -29,6 +30,8 @@ export class TournamentRepository {
       champion: null,
       ...(input.startAt !== undefined ? { startAt: input.startAt } : {}),
       ...(input.endAt !== undefined ? { endAt: input.endAt } : {}),
+      recurrence: input.recurrence ?? 'none',
+      edition: input.edition ?? 1,
       createdAt: new Date(),
     });
     const raw = await this.db.collection(COLLECTIONS.tournaments).findOne({ _id: res.insertedId });
@@ -57,6 +60,27 @@ export class TournamentRepository {
     if (oid === null) return false;
     const res = await this.db.collection(COLLECTIONS.tournaments).updateOne(
       { _id: oid }, { $set: { champion, status: 'FINISHED' } },
+    );
+    return res.matchedCount === 1;
+  }
+
+  /** Finished recurring series due for their next edition (missing nextRunAt counts as due). */
+  async dueRecurrence(now: Date): Promise<TournamentDoc[]> {
+    const rows = await this.db.collection(COLLECTIONS.tournaments)
+      .find({
+        status: 'FINISHED',
+        recurrence: { $in: ['daily', 'weekly'] },
+        $or: [{ nextRunAt: { $lte: now } }, { nextRunAt: { $exists: false } }],
+      })
+      .limit(50).toArray().catch(() => []);
+    return rows.map((r) => withDomainId<TournamentDoc>(r as Record<string, unknown>));
+  }
+
+  async scheduleNext(id: string, nextRunAt: Date): Promise<boolean> {
+    const oid = tryToObjectId(id);
+    if (oid === null) return false;
+    const res = await this.db.collection(COLLECTIONS.tournaments).updateOne(
+      { _id: oid }, { $set: { nextRunAt } },
     );
     return res.matchedCount === 1;
   }

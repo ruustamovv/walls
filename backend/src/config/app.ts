@@ -11,6 +11,8 @@ export const TIME_CONTROLS = [
   { id: '3+1', baseSec: 180, incSec: 1 },
   { id: '5+0', baseSec: 300, incSec: 0 },
   { id: '5+1', baseSec: 300, incSec: 1 },
+  { id: '10+0', baseSec: 600, incSec: 0 },
+  { id: '10+5', baseSec: 600, incSec: 5 },
 ] as const;
 
 export type TimeControlId = (typeof TIME_CONTROLS)[number]['id'];

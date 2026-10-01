@@ -7,11 +7,15 @@ import { COLLECTIONS } from '../collections.js';
 
 export type ChatScope = 'everyone' | 'friends' | 'nobody';
 
+export type Visibility = 'public' | 'friends' | 'private';
+
 export interface UserSettings {
   userId: string;
   showRating: boolean;
   allowChallenges: boolean;
   chatScope: ChatScope;
+  profileVisibility: Visibility;
+  historyVisibility: Visibility;
   notifyMatches: boolean;
   notifyResults: boolean;
   updatedAt: Date;
@@ -21,9 +25,15 @@ const DEFAULTS: Omit<UserSettings, 'userId' | 'updatedAt'> = {
   showRating: true,
   allowChallenges: true,
   chatScope: 'everyone',
+  profileVisibility: 'public',
+  historyVisibility: 'public',
   notifyMatches: true,
   notifyResults: true,
 };
+
+function asVisibility(v: unknown): Visibility {
+  return v === 'friends' || v === 'private' ? v : 'public';
+}
 
 function toSettings(raw: Record<string, unknown>, userId: string): UserSettings {
   return {
@@ -31,6 +41,8 @@ function toSettings(raw: Record<string, unknown>, userId: string): UserSettings 
     showRating: raw['showRating'] !== false,
     allowChallenges: raw['allowChallenges'] !== false,
     chatScope: raw['chatScope'] === 'friends' || raw['chatScope'] === 'nobody' ? raw['chatScope'] : 'everyone',
+    profileVisibility: asVisibility(raw['profileVisibility']),
+    historyVisibility: asVisibility(raw['historyVisibility']),
     notifyMatches: raw['notifyMatches'] !== false,
     notifyResults: raw['notifyResults'] !== false,
     updatedAt: (raw['updatedAt'] as Date | undefined) ?? new Date(),
@@ -52,6 +64,12 @@ export class SettingsRepository {
     if (typeof patch.allowChallenges === 'boolean') clean['allowChallenges'] = patch.allowChallenges;
     if (patch.chatScope === 'everyone' || patch.chatScope === 'friends' || patch.chatScope === 'nobody') {
       clean['chatScope'] = patch.chatScope;
+    }
+    if (patch.profileVisibility === 'public' || patch.profileVisibility === 'friends' || patch.profileVisibility === 'private') {
+      clean['profileVisibility'] = patch.profileVisibility;
+    }
+    if (patch.historyVisibility === 'public' || patch.historyVisibility === 'friends' || patch.historyVisibility === 'private') {
+      clean['historyVisibility'] = patch.historyVisibility;
     }
     if (typeof patch.notifyMatches === 'boolean') clean['notifyMatches'] = patch.notifyMatches;
     if (typeof patch.notifyResults === 'boolean') clean['notifyResults'] = patch.notifyResults;

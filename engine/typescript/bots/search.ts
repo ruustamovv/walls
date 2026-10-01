@@ -11,6 +11,7 @@
  */
 import { applyMove, getLegalMoves } from '../rules/game.js';
 import { getLegalWalls } from '../rules/walls.js';
+import { findShortestPath } from '../pathfinding/bfs.js';
 import type { Action, GameState, PlayerIndex, Wall } from '../core/types.js';
 import { evaluateFor, type EvalWeights } from './evaluate.js';
 
@@ -51,6 +52,66 @@ export function mulberry32(seed: number): () => number {
 export interface ScoredAction {
   action: Action;
   score: number;
+}
+
+/**
+ * Top-k candidate actions (ENB-002): best + alternatives with scores.
+ * Shares the exact candidate pipeline as chooseBotAction (same walls
+ * shortlist, noise, reply handling) so displayed alternatives match what
+ * the engine actually considered. Never fake precision: scores are raw
+ * eval units for ordering, percentages come from winChance calibration.
+ */
+export interface CandidateAction {
+  action: Action;
+  score: number;
+  /** Opponent route gain (>=0 means it lengthens their path). */
+  oppGain: number;
+  /** Own route cost (<=0 means it preserves or shortens our path). */
+  ownCost: number;
+}
+
+export function topCandidates(state: GameState, opts: SearchOptions, k = 3): CandidateAction[] {
+  const player = state.turn;
+  const other = (1 - player) as PlayerIndex;
+  const rng = mulberry32(opts.seed);
+  const deadline = Date.now() + Math.max(1, opts.budgetMs);
+  const pathLen = (s: GameState, p: PlayerIndex): number => {
+    const l = findShortestPath(s, p).length;
+    return l < 0 ? 999 : l;
+  };
+  const ownBefore = pathLen(state, player);
+  const oppBefore = pathLen(state, other);
+  const out: CandidateAction[] = [];
+  const consider = (action: Action, wallBoost: number): void => {
+    const next = applyMove(state, action).state;
+    let score = evaluateFor(next, player, opts.weights) + rng() * opts.noise + wallBoost;
+    if (opts.replySearch && (action.type === 'move' || opts.replyWalls === true) && !next.isOver && Date.now() <= deadline) {
+      score -= opponentBestReply(next, opts.weights, opts.budgetMs, deadline) * 0.5;
+    }
+    out.push({
+      action,
+      score,
+      oppGain: pathLen(next, other) - oppBefore,
+      ownCost: pathLen(next, player) - ownBefore,
+    });
+  };
+
+  for (const to of getLegalMoves(state)) {
+    if (Date.now() > deadline) break;
+    consider({ type: 'move', to: { ...to } }, 0);
+  }
+
+  if (state.wallsRemaining[player] > 0 && Date.now() <= deadline) {
+    const walls = getLegalWalls(state, player);
+    const shortlist = rankWalls(state, player, walls, rng, opts.wallCandidates, deadline);
+    const boost = (opts.wallBias - 1) * 4;
+    for (const wall of shortlist) {
+      if (Date.now() > deadline) break;
+      consider({ type: 'wall', wall: { ...wall } }, boost);
+    }
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, Math.max(1, k));
 }
 
 /**

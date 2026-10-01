@@ -37,8 +37,16 @@ export default function ResultModal({ winnerSeat, reason, perspective, moveCount
         background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 18, padding: 28, maxWidth: 440, width: '100%',
         textAlign: 'center', boxShadow: 'var(--shadow-pop)', animation: 'nexus-win .32s ease',
       }}>
-        <div aria-hidden style={{ fontSize: 44, animation: 'nexus-win .45s ease' }}>
-          {perspective === null ? '🏁' : won ? '🏆' : '🛡️'}
+        <div aria-hidden style={{ display: 'flex', justifyContent: 'center', animation: 'nexus-win .45s ease' }}>
+          {perspective === null || !won ? (
+            <svg width={44} height={44} viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 21V10l8-6 8 6v11" /><path d="M4 21h16" /><path d="M9 21v-5h6v5" />
+            </svg>
+          ) : (
+            <svg width={44} height={44} viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 4h10v5a5 5 0 01-10 0V4z" /><path d="M7 5H4v2a3 3 0 003 3M17 5h3v2a3 3 0 01-3 3" /><path d="M12 14v4M8 21h8M9 18h6" />
+            </svg>
+          )}
         </div>
         <div className="font-display" style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.14em', color: won ? 'var(--good)' : 'var(--muted)' }}>
           {perspective === null ? 'GAME OVER' : won ? 'VICTORY' : 'DEFEAT'}

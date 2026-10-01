@@ -398,3 +398,29 @@ export async function commentate(
     : `Move ${facts.moves}: seat ${facts.turn} to play, routes ${facts.ownPath} vs ${facts.oppPath}, clocks ${facts.clockSec[0]}s–${facts.clockSec[1]}s.`;
   return withFallback(userId, provider, 'commentary', system, userPrompt, canned);
 }
+
+export interface TriageFacts {
+  reason: string;
+  targetType: string;
+}
+
+/**
+ * On-demand moderation triage (AIM-002): a staff member asks the model to
+ * read ONE flagged report and return abusive/clean/unclear plus the exact
+ * quoted span. Human decides; the model never acts. Falls back to an
+ * honest unavailable message when no provider is configured.
+ */
+export async function triageReport(
+  userId: string,
+  provider: AIProviderId,
+  facts: TriageFacts,
+): Promise<CoachResult> {
+  const system = [
+    'You assist game moderators. Read the flagged report reason below.',
+    'Reply in ≤60 words: verdict ABUSIVE, CLEAN, or UNCLEAR, then quote the exact offending span (or "none").',
+    'NEVER invent content beyond the quoted reason. Do not moralize.',
+  ].join(' ');
+  const userPrompt = `Report target: ${facts.targetType}.\nReason text: ${facts.reason.slice(0, 800)}`;
+  const canned = 'AI triage unavailable — no provider configured. Review the quoted text manually.';
+  return withFallback(userId, provider, 'moderation', system, userPrompt, canned);
+}

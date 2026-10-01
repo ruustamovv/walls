@@ -31,6 +31,13 @@ async function main(): Promise<void> {
 
   await app.listen({ host: env.HOST, port: env.PORT });
   attachGameSocket(app.server);
+  // Hourly recurrence sweep for daily/weekly tournament series (TRN-007).
+  const sweepTimer = setInterval(() => {
+    void import('./modules/tournaments/service.js')
+      .then(({ sweepRecurrence }) => sweepRecurrence().catch((err: unknown) => logger.warn({ err }, 'recurrence sweep failed')))
+      .catch(() => undefined);
+  }, 60 * 60 * 1000);
+  sweepTimer.unref?.();
   logger.info({ port: env.PORT, env: env.NODE_ENV }, 'backend listening (mongo+redis)');
 }
 

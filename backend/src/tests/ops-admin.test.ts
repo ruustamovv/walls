@@ -78,7 +78,7 @@ describe('ops: privacy + moderation + announcements + quotas', () => {
     assert.equal(pub.status, 200);
     assert.deepEqual(pub.json['ratings'], []);
     const self = await call('GET', '/api/v1/profiles/shyplayer', shy);
-    assert.ok(((self.json['ratings'] as unknown[]) ?? []).length === 4);
+    assert.ok(((self.json['ratings'] as unknown[]) ?? []).length === 5);
   });
 
   it('warns, mutes and lists bans', async () => {

@@ -127,8 +127,14 @@ export class ReportRepository {
     return rows.map((r) => withDomainId<ReportDoc>(r as Record<string, unknown>));
   }
 
-  async resolve(id: string, status: Exclude<ReportStatus, 'OPEN'>, resolution: string): Promise<boolean> {
+  async findById(id: string): Promise<ReportDoc | null> {
     const oid = tryToObjectId(id);
+    if (oid === null) return null;
+    const raw = await this.db.collection(COLLECTIONS.reports).findOne({ _id: oid });
+    return raw === null ? null : withDomainId<ReportDoc>(raw as Record<string, unknown>);
+  }
+
+  async resolve(id: string, status: Exclude<ReportStatus, 'OPEN'>, resolution: string): Promise<boolean> {    const oid = tryToObjectId(id);
     if (oid === null) return false;
     const res = await this.db.collection(COLLECTIONS.reports).updateOne(
       { _id: oid, status: 'OPEN' },

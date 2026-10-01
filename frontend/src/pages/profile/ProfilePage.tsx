@@ -13,7 +13,7 @@ export default function ProfilePage() {
   const username = id === 'me' ? (user?.username ?? '') : id;
   const [data, setData] = useState<Awaited<ReturnType<typeof api.profile>> | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<'blitz' | 'bullet' | 'rapid' | 'casual'>('blitz');
+  const [mode, setMode] = useState<'blitz' | 'bullet' | 'rapid' | 'classic' | 'casual'>('blitz');
   const [challenged, setChallenged] = useState<string | null>(null);
 
   useEffect(() => {
@@ -33,14 +33,26 @@ export default function ProfilePage() {
   return (
     <div style={{ display: 'grid', gap: 16 }}>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-        <Avatar name={username} size={60} />
+        <Avatar name={username} size={60} frame={data?.frame} />
         <div>
           <h1 className="font-display" style={{ margin: 0 }}>{username}</h1>
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             {data === null
               ? <Skeleton width={140} />
               : data.ratings.length > 0 && <DivisionBadge rating={Math.max(...data.ratings.map((r) => r.rating))} />}
-            {data?.views !== undefined && <Badge tone="neutral">👁 {data.views} views</Badge>}
+            {data?.views !== undefined && (
+              <span title={`All time ${data.views} · 7d ${data.viewsWeek ?? 0} · 30d ${data.viewsMonth ?? 0}`}>
+                <Badge tone="neutral">
+                  {data.views} views
+                </Badge>
+              </span>
+            )}
+            {data?.fairPlay !== undefined && (
+              <Badge tone={data.fairPlay.level === 'exemplary' || data.fairPlay.level === 'good' ? 'good' : data.fairPlay.level === 'caution' ? 'warn' : 'bad'}>
+                Fair play {data.fairPlay.score} · {data.fairPlay.level}
+              </Badge>
+            )}
+            <LevelChip username={username} />
             {data?.degraded === true && <Badge tone="warn">offline</Badge>}
             {user !== null && user.username !== username && (
               <>
@@ -69,8 +81,19 @@ export default function ProfilePage() {
                   </span>
                   {data.stats.streak > 1 && (
                     <Badge tone={data.stats.streakWon ? 'good' : 'bad'}>
-                      {data.stats.streakWon ? '🔥' : '❄'} {data.stats.streak} {data.stats.streakWon ? 'wins' : 'losses'} in a row
+                      {data.stats.streak} {data.stats.streakWon ? 'wins' : 'losses'} in a row
                     </Badge>
+                  )}
+                  {data.stats.winRate !== undefined && (
+                    <span>Win rate <strong className="font-mono">{data.stats.winRate}%</strong></span>
+                  )}
+                  {data.stats.avgDurationSec !== undefined && data.stats.avgDurationSec > 0 && (
+                    <span>Avg game <strong className="font-mono">{Math.floor(data.stats.avgDurationSec / 60)}m {data.stats.avgDurationSec % 60}s</strong></span>
+                  )}
+                  {(data.stats.timeouts ?? 0) + (data.stats.resignations ?? 0) > 0 && (
+                    <span style={{ color: 'var(--muted)' }}>
+                      {data.stats.timeouts ?? 0} timeouts · {data.stats.resignations ?? 0} resignations
+                    </span>
                   )}
                 </div>
               </Card>
@@ -78,7 +101,7 @@ export default function ProfilePage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
               {data.ratings.map((r) => (
                 <Card key={r.mode}>
-                  <div style={{ textTransform: 'capitalize', color: 'var(--muted)', fontSize: 13, fontWeight: 700 }}>{r.mode} {r.mode === 'bullet' ? '· 1+' : r.mode === 'blitz' ? '· 3+' : r.mode === 'rapid' ? '· 5+' : ''}</div>
+                  <div style={{ textTransform: 'capitalize', color: 'var(--muted)', fontSize: 13, fontWeight: 700 }}>{r.mode} {r.mode === 'bullet' ? '· 1+' : r.mode === 'blitz' ? '· 3+' : r.mode === 'rapid' ? '· 5+' : r.mode === 'classic' ? '· 10+' : ''}</div>
                   <div className="font-mono" style={{ fontSize: 26, fontWeight: 800 }}>{r.rating}</div>
                   <div style={{ margin: '6px 0' }}><DivisionBadge rating={r.rating} /></div>
                   <div style={{ fontSize: 13, color: 'var(--muted)' }}>
@@ -91,7 +114,7 @@ export default function ProfilePage() {
               )}
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <Segmented options={['blitz', 'bullet', 'rapid', 'casual'] as const} active={mode} onChange={setMode} ariaLabel="rating mode" />
+              <Segmented options={['blitz', 'bullet', 'rapid', 'classic', 'casual'] as const} active={mode} onChange={setMode} ariaLabel="rating mode" />
             </div>
             <RatingChart username={username} mode={mode} />
             <Card>
@@ -121,6 +144,17 @@ export default function ProfilePage() {
         )}
     </div>
   );
+}
+
+function LevelChip({ username }: { username: string }) {
+  const [xp, setXp] = useState<{ level: number; xp: number } | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.xp(username).then((r) => { if (live) setXp({ level: r.level, xp: r.xp }); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [username]);
+  if (xp === null) return null;
+  return <Badge tone="info">Lv {xp.level} · {xp.xp} XP</Badge>;
 }
 
 function ReportUserButton({ username }: { username: string }) {

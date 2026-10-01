@@ -21,6 +21,7 @@ function TournamentList() {
   const [loading, setLoading] = useState(true);
   const [title, setTitle] = useState('');
   const [format, setFormat] = useState<Format>('single-elim');
+  const [recurrence, setRecurrence] = useState<'once' | 'daily' | 'weekly'>('once');
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -34,7 +35,7 @@ function TournamentList() {
   async function create() {
     setError(null);
     try {
-      await api.tournamentCreate(title.trim(), format);
+      await api.tournamentCreate(title.trim(), format, recurrence === 'once' ? undefined : recurrence);
       setTitle('');
       load();
     } catch (err) {
@@ -52,6 +53,7 @@ function TournamentList() {
             <TextInput value={title} onChange={(e) => setTitle(e.target.value)} maxLength={80} />
           </Field>
           <div style={{ marginBottom: 12 }}><Tabs tabs={FORMATS} active={format} onChange={setFormat} /></div>
+          <div style={{ marginBottom: 12 }}><Tabs tabs={(['once', 'daily', 'weekly'] as const)} active={recurrence} onChange={setRecurrence} /></div>
           {error !== null && <p role="alert" style={{ color: 'var(--bad)' }}>{error}</p>}
           <Button onClick={create} disabled={title.trim().length < 3}>Create</Button>
         </Card>

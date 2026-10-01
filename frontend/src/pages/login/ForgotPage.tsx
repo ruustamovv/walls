@@ -1,8 +1,8 @@
 /**
- * Password recovery: request link, then set a new password from the link.
+ * Password recovery + email verification: request link, then act on it.
  * The backend never reveals whether an address exists.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button, Card, Field, TextInput } from '../../components/ui/primitives.js';
 import { api } from '../../lib/api.js';
@@ -85,6 +85,34 @@ export function ResetPage() {
             <Button type="submit" disabled={busy} style={{ width: '100%' }}>{busy ? 'Saving…' : 'Save new password'}</Button>
           </form>
         )}
+      </Card>
+    </div>
+  );
+}
+
+export function VerifyPage() {
+  const [params] = useSearchParams();
+  const token = params.get('token') ?? '';
+  const [state, setState] = useState<'idle' | 'ok' | 'bad'>('idle');
+  useEffect(() => {
+    if (token === '') {
+      setState('bad');
+      return;
+    }
+    let live = true;
+    api.verifyConfirm(token)
+      .then(() => { if (live) setState('ok'); })
+      .catch(() => { if (live) setState('bad'); });
+    return () => { live = false; };
+  }, [token]);
+
+  return (
+    <div style={{ maxWidth: 440, margin: '24px auto' }}>
+      <Card>
+        <h1 className="font-display" style={{ margin: '0 0 8px' }}>Verify email</h1>
+        {state === 'idle' && <p style={{ color: 'var(--muted)' }}>Confirming…</p>}
+        {state === 'ok' && <p>Address confirmed. <Link to="/play">Enter the arena</Link></p>}
+        {state === 'bad' && <p role="alert" style={{ color: 'var(--bad)' }}>This link is invalid or expired.</p>}
       </Card>
     </div>
   );

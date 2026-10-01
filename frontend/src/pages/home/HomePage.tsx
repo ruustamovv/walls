@@ -7,22 +7,56 @@ import { Link } from 'react-router-dom';
 import { createGame } from '../../../../engine/typescript/index.js';
 import { BOTS } from '../../../../engine/typescript/index.js';
 import GameBoard from '../../components/game/GameBoard.js';
-import { Badge, Button, Card, Logo, Stat } from '../../components/ui/primitives.js';
+import { Badge, Button, Card, Logo, Spinner, Stat } from '../../components/ui/primitives.js';
 import { api } from '../../lib/api.js';
 import { BRAND } from '../../lib/brand.js';
+import { useSession } from '../../stores/session.js';
 
 const preview = createGame({ size: 9, wallsPerPlayer: 10 });
 
 export default function HomePage() {
   const [liveCount, setLiveCount] = useState<number | null>(null);
+  const { user } = useSession();
+  const [mine, setMine] = useState<{ rating: number; streak: number; streakWon: boolean; views: number } | null>(null);
   useEffect(() => {
     let live = true;
     api.liveGames().then((r) => { if (live) setLiveCount(r.games.length); }).catch(() => undefined);
     return () => { live = false; };
   }, []);
+  useEffect(() => {
+    if (user === null) {
+      setMine(null);
+      return;
+    }
+    let live = true;
+    api.profile(user.username).then((p) => {
+      if (!live) return;
+      const top = p.ratings.length > 0 ? Math.max(...p.ratings.map((r) => r.rating)) : 0;
+      setMine({ rating: top, streak: p.stats?.streak ?? 0, streakWon: p.stats?.streakWon ?? false, views: p.views ?? 0 });
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [user === null]);
 
   return (
     <div style={{ display: 'grid', gap: 'var(--space-6)' }}>
+      {user !== null && (
+        <Card>
+          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong className="font-display">Your arena</strong>
+            {mine === null ? <Spinner /> : (
+              <>
+                <span style={{ fontSize: 14 }}>Top <strong className="font-mono">{mine.rating}</strong></span>
+                {mine.streak > 1 && <span style={{ fontSize: 14 }}>{mine.streak} {mine.streakWon ? 'wins' : 'losses'} in a row</span>}
+                <span style={{ fontSize: 14, color: 'var(--muted)' }}>{mine.views} profile views</span>
+              </>
+            )}
+            <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <Link to="/puzzles"><Button size="sm" variant="ghost">Daily puzzle</Button></Link>
+              <Link to="/training"><Button size="sm" variant="ghost">Train mistakes</Button></Link>
+            </span>
+          </div>
+        </Card>
+      )}
       <section
         style={{
           borderRadius: 'var(--radius-lg)', padding: 'clamp(24px, 5vw, 56px)',
@@ -54,7 +88,7 @@ export default function HomePage() {
                 <span aria-hidden style={{ width: 9, height: 9, borderRadius: '50%', background: liveCount !== null && liveCount > 0 ? '#34d399' : '#5d6678', animation: 'nexus-pulse 1.6s infinite' }} />
                 {liveCount === null ? 'checking the arena…' : liveCount === 0 ? 'no live battles right now' : `${liveCount} live battle${liveCount === 1 ? '' : 's'}`}
               </span>
-              <span style={{ fontSize: 14, color: '#9aa4b5' }}>10 engine bots · daily puzzles · ranked 15×15</span>
+              <span style={{ fontSize: 14, color: '#9aa4b5' }}>{BOTS.length} engine bots · daily puzzle · ranked 15×15</span>
             </div>
           </div>
           <div style={{ maxWidth: 400, width: '100%', margin: '0 auto' }}>
@@ -86,7 +120,7 @@ export default function HomePage() {
           <h2 className="font-display" style={{ margin: 0 }}>Sparring ladder</h2>
           <Badge tone="info">all running the real engine</Badge>
         </div>
-        <p style={{ color: 'var(--muted)', margin: '0 0 14px', fontSize: 14 }}>From Rookie to Grandmaster. <Link to="/bots">Meet all ten →</Link></p>
+        <p style={{ color: 'var(--muted)', margin: '0 0 14px', fontSize: 14 }}>From Rookie to Apex. <Link to="/bots">Meet them all →</Link></p>
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
           {BOTS.slice(0, 6).map((b) => (
             <Link

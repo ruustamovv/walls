@@ -11,13 +11,14 @@
  *   game:state  GAME_STATE snapshot
  *   game:error  { message }
  *
- * Auth: JWT placeholder — verifies `auth.token` when JWT_SECRET is set and
- * the `jsonwebtoken`-free HMAC check passes; otherwise accepts `auth.userId`
- * in non-production (dev/test) and rejects in production.
+ * Auth: single-use socket tickets (realtime/tickets.js), issued over the
+ * cookie-authenticated REST layer. Unsigned `auth.userId` is accepted in
+ * dev/test only; production requires a ticket.
  */
 import type { Server as HttpServer } from 'node:http';
 import { Server, type Socket } from 'socket.io';
-import { GameActionSchema } from '../../common/validation/schemas.js';
+import { normalizeIntent } from '../../common/validation/schemas.js';
+import { redeemSocketTicket } from '../tickets.js';
 import { childLogger } from '../../common/logging/logger.js';
 import { gamesService } from '../../modules/games/service.js';
 import { multiGamesService } from '../../modules/multiGames/service.js';
@@ -38,12 +39,13 @@ interface AuthedSocket extends Socket {
 
 function resolveUserId(socket: AuthedSocket): string | null {
   const auth = socket.handshake.auth as Record<string, unknown>;
-  const token = auth['token'];
+  // Socket tickets (preferred): single-use, cookie-issued, 60s TTL.
+  const redeemed = redeemSocketTicket(auth['ticket']);
+  if (redeemed !== null) return redeemed;
+  // Dev/test fallback: unsigned userId. Production requires a ticket.
   const candidate = auth['userId'];
   if (typeof candidate === 'string' && candidate.length > 0 && candidate.length <= 128) {
-    // TODO(auth): verify JWT via JWT_SECRET and derive userId from `sub`.
-    // Production must reject unsigned userId; dev/test allows it.
-    if (process.env['NODE_ENV'] === 'production' && typeof token !== 'string') return null;
+    if (process.env['NODE_ENV'] === 'production') return null;
     return candidate;
   }
   return null;
@@ -94,14 +96,18 @@ export function attachGameSocket(httpServer: HttpServer): Server {
     });
 
     const handleAction = (payload: unknown): void => {
-      const parsed = GameActionSchema.safeParse((payload as Record<string, unknown>)['action'] ?? payload);
-      const gameId = (payload as Record<string, unknown>)['gameId'];
+      const obj = (payload as Record<string, unknown>) ?? {};
+      const gameId = obj['gameId'];
+      const parsed = normalizeIntent(obj['action'] ?? obj);
       if (!parsed.success || typeof gameId !== 'string') {
         socket.emit('game:error', { message: 'invalid action payload' });
         return;
       }
       try {
-        const g = gamesService.play(gameId, userId, parsed.data);
+        const g = gamesService.play(gameId, userId, parsed.data.action, {
+          ...(typeof obj['actionId'] === 'string' ? { actionId: obj['actionId'] as string } : {}),
+          ...(typeof obj['baseMoveNumber'] === 'number' ? { baseMoveNumber: obj['baseMoveNumber'] as number } : {}),
+        });
         void persistMoveAppended(g).catch(() => undefined);
         if (g.status === 'finished' && !g.settled) {
           void settleFinishedGame(g)
@@ -181,13 +187,35 @@ export function attachGameSocket(httpServer: HttpServer): Server {
             return;
           }
           lastChatAt = now;
+          const { scoreMessage, autoFlag } = await import('../../modules/moderation/filter.js');
+          const verdict = scoreMessage(text);
+          if (verdict.decision === 'block') {
+            socket.emit('game:error', { message: 'message blocked by auto-moderation' });
+            try {
+              const { getMongoDb } = await import('../../database/mongodb/client.js');
+              await autoFlag(await getMongoDb(), userId, `game:${gameId}`, text, verdict.reasons);
+            } catch {
+              // flagging best-effort
+            }
+            return;
+          }
+          if (verdict.decision === 'flag') {
+            void (async () => {
+              try {
+                const { getMongoDb } = await import('../../database/mongodb/client.js');
+                await autoFlag(await getMongoDb(), userId, `game:${gameId}`, text, verdict.reasons);
+              } catch {
+                // flagging best-effort
+              }
+            })();
+          }
           const g = gamesService.get(gameId);
           if (g.playerIds[0] !== userId && g.playerIds[1] !== userId) {
             socket.emit('game:error', { message: 'only players can chat here' });
             return;
           }
           // Guests can read but not send: chat is an anti-abuse surface
-          // (GST-001). Quick-chat presets arrive with CHT-002.
+          // (GST-001). Ranked presets are registered-only by construction.
           try {
             const { getAuthService } = await import('../../modules/auth/service.js');
             if (await (await getAuthService()).isGuest(userId)) {
@@ -196,6 +224,15 @@ export function attachGameSocket(httpServer: HttpServer): Server {
             }
           } catch {
             // guest lookup best-effort; fall through to scope checks
+          }
+          // Ranked games are quick-chat only (CHT-002): no free text, no
+          // strategic content, no chat-based stalling or abuse surface.
+          if (g.mode === 'ranked') {
+            const { isQuickChat } = await import('../../../../engine/typescript/dist/chat/index.js');
+            if (!isQuickChat(text)) {
+              socket.emit('game:error', { message: 'ranked games allow quick-chat only' });
+              return;
+            }
           }
           // Honor the sender's chat scope (friends-only restricts to friends).
           // Mutes are enforced inside the same best-effort settings lookup.
@@ -296,6 +333,12 @@ export function attachGameSocket(httpServer: HttpServer): Server {
             return;
           }
           lastClubChatAt = now;
+          const { scoreMessage, autoFlag } = await import('../../modules/moderation/filter.js');
+          const clubVerdict = scoreMessage(text);
+          if (clubVerdict.decision === 'block') {
+            socket.emit('game:error', { message: 'message blocked by auto-moderation' });
+            return;
+          }
           const { getMongoDb } = await import('../../database/mongodb/client.js');
           const { ClubRepository } = await import('../../database/mongodb/repositories/club.repository.js');
           const { ChatRepository } = await import('../../database/mongodb/repositories/chat.repository.js');
@@ -312,6 +355,9 @@ export function attachGameSocket(httpServer: HttpServer): Server {
             return;
           }
           const saved = await new ChatRepository(db).post(clubRoom(clubId), userId, text).catch(() => null);
+          if (clubVerdict.decision === 'flag') {
+            void autoFlag(db, userId, `club:${clubId}`, text, clubVerdict.reasons);
+          }
           io.to(clubRoom(clubId)).emit('club:chat', {
             clubId, from: userId, body: text, at: now,
             id: saved?._id ?? `${now}`,
@@ -360,13 +406,16 @@ export function attachGameSocket(httpServer: HttpServer): Server {
     const handleMultiAction = (payload: unknown): void => {
       const obj = (payload as Record<string, unknown>) ?? {};
       const gameId = obj['gameId'];
-      const parsed = GameActionSchema.safeParse(obj['action'] ?? obj);
+      const parsed = normalizeIntent(obj['action'] ?? obj);
       if (!parsed.success || typeof gameId !== 'string') {
         socket.emit('game:error', { message: 'invalid action payload' });
         return;
       }
       try {
-        const g = multiGamesService.play(gameId, userId, parsed.data);
+        const g = multiGamesService.play(gameId, userId, parsed.data.action, {
+          ...(typeof obj['actionId'] === 'string' ? { actionId: obj['actionId'] as string } : {}),
+          ...(typeof obj['baseMoveNumber'] === 'number' ? { baseMoveNumber: obj['baseMoveNumber'] as number } : {}),
+        });
         void persistMultiMoveAppended(g).catch(() => undefined);
         if (g.status === 'finished' && !g.settled) {
           void settleMultiGame(g).catch(() => undefined);
@@ -412,6 +461,12 @@ export function attachGameSocket(httpServer: HttpServer): Server {
             return;
           }
           lastChatAt = now;
+          const { scoreMessage: multiScore, autoFlag: multiFlag } = await import('../../modules/moderation/filter.js');
+          const multiVerdict = multiScore(text);
+          if (multiVerdict.decision === 'block') {
+            socket.emit('game:error', { message: 'message blocked by auto-moderation' });
+            return;
+          }
           const g = multiGamesService.get(gameId);
           if (!g.playerIds.includes(userId)) {
             socket.emit('game:error', { message: 'only players can chat here' });
@@ -425,6 +480,16 @@ export function attachGameSocket(httpServer: HttpServer): Server {
             }
           } catch {
             // guest lookup best-effort
+          }
+          if (multiVerdict.decision === 'flag') {
+            void (async () => {
+              try {
+                const { getMongoDb } = await import('../../database/mongodb/client.js');
+                await multiFlag(await getMongoDb(), userId, `multi:${gameId}`, text, multiVerdict.reasons);
+              } catch {
+                // flagging best-effort
+              }
+            })();
           }
           io.to(gameId).emit('multi:chat', { from: userId, body: text, at: now });
         } catch {

@@ -31,6 +31,8 @@ html[data-theme='site'] {
   --player-b: #f59e0b;
   --player-c: #0e9f6e;
   --player-d: #7c3aed;
+  --player-e: #db2777;
+  --player-f: #0d9488;
   --wall: #3b3a5e;
   --wall-ghost-ok: rgba(79, 70, 229, .45);
   --wall-ghost-bad: rgba(185, 28, 28, .45);
@@ -97,6 +99,8 @@ html[data-theme='arena'] {
   --player-b: #f59e0b;
   --player-c: #34d399;
   --player-d: #a78bfa;
+  --player-e: #f472b6;
+  --player-f: #2dd4bf;
   --wall: #a5b4fc;
   --wall-ghost-ok: rgba(34, 211, 238, .5);
   --wall-ghost-bad: rgba(248, 113, 113, .5);
@@ -108,6 +112,56 @@ html[data-theme='arena'] {
   --shadow-card: 0 2px 12px rgba(0, 0, 0, .45);
   --shadow-pop: 0 24px 70px rgba(0, 0, 0, .6);
   --shadow-lift: 0 8px 28px rgba(129,140,248,.28);
+}
+
+/* Extra restrained app themes (THM-003). Light variants + full contrast. */
+html[data-theme='slate'] {
+  --bg: #eef1f4;
+  --surface: #f8fafb;
+  --surface-2: #e2e8ee;
+  --ink: #1c2733;
+  --muted: #55677a;
+  --line: #d3dce4;
+  --primary: #2563eb;
+  --primary-soft: #dbe7fd;
+  --cell: #fbfcfd;
+  --cell-alt: #e8edf2;
+  --board-shell: #cfd9e2;
+}
+html[data-theme='warm'] {
+  --bg: #faf4e8;
+  --surface: #fffaf0;
+  --surface-2: #f1e6d2;
+  --ink: #3d3225;
+  --muted: #7a6a52;
+  --line: #e5d6bd;
+  --primary: #b45309;
+  --primary-soft: #f7e8d2;
+  --cell: #fffdf7;
+  --cell-alt: #f5ecd9;
+  --board-shell: #ddcba6;
+}
+html[data-theme='contrast'] {
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-2: #1a1a1a;
+  --ink: #ffffff;
+  --muted: #d4d4d4;
+  --faint: #a3a3a3;
+  --line: #525252;
+  --primary: #facc15;
+  --primary-ink: #000000;
+  --primary-soft: #3a3000;
+  --good: #4ade80;
+  --good-soft: #052e16;
+  --bad: #f87171;
+  --bad-soft: #450a0a;
+  --warn: #fbbf24;
+  --warn-soft: #451a03;
+  --cell: #111111;
+  --cell-alt: #000000;
+  --board-shell: #000000;
+  --wall: #ffffff;
 }
 
 @keyframes nexus-fade { from { opacity: 0; } to { opacity: 1; } }

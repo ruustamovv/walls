@@ -81,6 +81,14 @@ export const api = {
   reportResolve: (id: string, status: string, resolution: string) => req<{ ok: boolean }>(
     `/api/v1/admin/reports/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify({ status, resolution }) },
   ),
+  reportAiReview: (id: string) => req<{ available: boolean; provider?: string; verdict?: string; message?: string }>(
+    `/api/v1/admin/reports/${encodeURIComponent(id)}/ai-review`, { method: 'POST' },
+  ),
+  billing: () => req<{
+    provider: string; checkoutReady: boolean; reason: string;
+    recentEvents: { eventId: string; type: string; userId: string; createdAt: unknown }[];
+    grantsByEntitlement: { entitlement: string; count: number }[];
+  }>('/api/v1/admin/billing'),
 
   aiStatus: () => req<{
     providers: { id: string; configured: boolean; keyHint: string | null; model: string | null }[];

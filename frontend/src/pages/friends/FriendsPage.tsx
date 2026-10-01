@@ -15,6 +15,7 @@ export default function FriendsPage() {
   const [name, setName] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [peer, setPeer] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -57,8 +58,7 @@ export default function FriendsPage() {
     }
   }
 
-  return (
-    <div style={{ display: 'grid', gap: 16 }}>
+  return (    <div style={{ display: 'grid', gap: 16 }}>
       <h1 style={{ margin: 0 }}>Friends</h1>
       {message !== null && <p role="status" style={{ color: 'var(--muted)' }}>{message}</p>}
       <Card>
@@ -101,6 +101,7 @@ export default function FriendsPage() {
                       <Badge tone={f.online ? 'good' : 'neutral'}>{f.online ? 'online' : 'offline'}</Badge>
                       <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                         <Button variant="ghost" onClick={() => void challenge(f.id)}>Challenge</Button>
+                        <Button variant="ghost" onClick={() => setPeer(peer === f.username ? null : f.username)}>Message</Button>
                         <Button variant="subtle" onClick={() => { void api.friendBlock(f.username).then(load); }}>Block</Button>
                       </span>
                     </li>
@@ -108,8 +109,66 @@ export default function FriendsPage() {
                 </ul>
               )}
           </Card>
+          {peer !== null && <DmThread peer={peer} myId={user?.id ?? ''} onClose={() => setPeer(null)} />}
         </>
       )}
     </div>
+  );
+}
+
+function DmThread({ peer, myId, onClose }: { peer: string; myId: string; onClose: () => void }) {
+  const [messages, setMessages] = useState<{ _id: string; userId: string; body: string; createdAt: string }[]>([]);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api.dmHistory(peer)
+      .then((r) => setMessages(r.messages))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Could not load messages'));
+  }, [peer]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 5000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  async function send(e: React.FormEvent) {
+    e.preventDefault();
+    if (draft.trim().length === 0) return;
+    setError(null);
+    try {
+      await api.dmSend(peer, draft.trim());
+      setDraft('');
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Send failed');
+    }
+  }
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <h3 style={{ margin: 0 }}>Messages · {peer}</h3>
+        <span style={{ marginLeft: 'auto' }}>
+          <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+        </span>
+      </div>
+      <div aria-live="polite" style={{ display: 'grid', gap: 6, maxHeight: 260, overflowY: 'auto', marginBottom: 8 }}>
+        {messages.length === 0 && <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>No messages yet — say hi.</p>}
+        {messages.map((m) => (
+          <p key={m._id} style={{ margin: 0, fontSize: 14 }}>
+            <strong>{m.userId === myId ? 'You' : peer}</strong>{' '}
+            <span style={{ color: 'var(--muted)', fontSize: 12 }}>{new Date(m.createdAt).toLocaleString()}</span>
+            <br />{m.body}
+          </p>
+        ))}
+      </div>
+      {error !== null && <p role="alert" style={{ color: 'var(--bad)', fontSize: 13 }}>{error}</p>}
+      <form onSubmit={send} style={{ display: 'flex', gap: 8 }}>
+        <TextInput value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={500} placeholder="Message…" aria-label="direct message" />
+        <Button type="submit" variant="ghost">Send</Button>
+      </form>
+    </Card>
   );
 }

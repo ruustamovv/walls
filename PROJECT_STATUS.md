@@ -26,6 +26,7 @@
 | 12 | Bots | IN_PROGRESS | 2026-09-30 | 10 personalities + banter + Nemesis counter; calibrate emits opening-book JSON; full-matrix rating anchoring pending |
 | 13–15 | Puzzles / Friends / Chat | IN_PROGRESS | 2026-09-30 | daily + personal + Rush/Survival (seeded, leaders) + training; friends + presence + challenges; game + club chat; rating-history + seat stats + profile chart; live AI coach (fallback chain, budgets, Explain UI + game summaries) |
 | 13–15 | Guest mode (GST) | COMPLETE | 2026-09-30 | POST /auth/guest (30/h) + /auth/convert in-place; casual-only (ranked/friends/clubs/chat-send gated, zero rating writes); share-link invites expire 24h; guest.test.js 2/2; backend 81/81 |
+| XXL | 20-task batch (2026-09-30) | COMPLETE | 2026-09-30 | visibility system + privacy gates + view windows + metrics + recurrence + candidates + load rig + sidebar/toasts/modal/themes/haptics/icons/divisions/landing/a11y; engine 70/70, backend 109/109, e2e 7/7 |
 | 13–15 | Leaderboards / Puzzles / Review | NOT_STARTED | — | — |
 | 16–19 | AI Coach/Nemesis/Mirror/Architect | IN_PROGRESS | 2026-09-30 | coach + game summaries + commentator over fallback chain (canned engine tier); Nemesis live (mistake-profile counter bot); Mirror/Architect still future |
 | 20–21 | Tournaments / Clubs-social | IN_PROGRESS | 2026-09-30 | clubs + chat; tournaments + ARENA format (live re-pairing, countdown, finish) + /tournaments UI |

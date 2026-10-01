@@ -10,6 +10,7 @@ import { evaluateFor } from '../bots/evaluate.js';
 import { BOTS, botAction, getBot } from '../bots/personalities.js';
 import { adaptiveBudgetMs } from '../bots/search.js';
 import { makeState } from './helpers.js';
+import { BALANCED_WEIGHTS, topCandidates } from '../index.js';
 
 describe('bots: personalities', () => {
   it('defines 19 rated bots covering every target tier', () => {
@@ -41,11 +42,29 @@ describe('bots: personalities', () => {
   it('wall-reply lever only affects wall-heavy lines', () => {
     const mythic = getBot('mythic');
     const legend = getBot('legend');
-    assert.ok(mythic !== null && legend !== null);
+    const architect = getBot('architect');
+    assert.ok(mythic !== null && legend !== null && architect !== null);
     assert.equal(mythic.replyWalls, true);
-    assert.notEqual(legend.replyWalls, true);
+    assert.equal(legend.replyWalls, true);
+    assert.notEqual(architect.replyWalls, true);
     const s = createGame({ size: 9, wallsPerPlayer: 10 });
     assert.equal(validateMove(s, botAction(mythic, s, 42)).ok, true);
+  });
+
+  it('topCandidates returns ordered legal alternatives with route impact', () => {
+    const s = createGame({ size: 9, wallsPerPlayer: 10 });
+    const opts = { weights: { ...BALANCED_WEIGHTS }, wallCandidates: 24, noise: 0, wallBias: 1, replySearch: false, budgetMs: 150, seed: 7 };
+    const cands = topCandidates(s, opts, 3);
+    assert.equal(cands.length, 3);
+    for (let i = 1; i < cands.length; i++) {
+      assert.ok((cands[i - 1] as { score: number }).score >= (cands[i] as { score: number }).score);
+    }
+    for (const c of cands) {
+      assert.equal(validateMove(s, c.action).ok, true);
+      assert.ok(Number.isFinite(c.oppGain) && Number.isFinite(c.ownCost));
+    }
+    const again = topCandidates(s, opts, 3);
+    assert.deepEqual(again.map((c) => c.action), cands.map((c) => c.action));
   });
 
   it('every bot returns a legal action on 9x9 and 15x15 openings', () => {

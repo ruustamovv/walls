@@ -5,9 +5,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { winChanceFor } from '../../../../engine/typescript/eval/winChance.js';
+import { QUICK_CHAT } from '../../../../engine/typescript/index.js';
 import { findShortestPath } from '../../../../engine/typescript/index.js';
 import { TextInput } from '../../components/ui/primitives.js';
 import { playSound } from '../../lib/sound.js';
+import { haptic } from '../../lib/haptics.js';
 import { api } from '../../lib/api.js';
 import { copyText, exportGame } from '../../lib/export.js';
 import GameBoard from '../../components/game/GameBoard.js';
@@ -60,9 +62,21 @@ export default function GamePage() {
     const n = game.snapshot?.moveCount ?? 0;
     if (n > soundedMoves.current) {
       soundedMoves.current = n;
-      playSound(game.snapshot?.state.lastAction?.type === 'wall' ? 'wall' : 'move');
+      const isWall = game.snapshot?.state.lastAction?.type === 'wall';
+      playSound(isWall ? 'wall' : 'move');
+      if (isWall) haptic.wall(); else haptic.move();
     }
   }, [game.snapshot]);
+
+  const soundedEnd = useRef(false);
+  useEffect(() => {
+    if (game.snapshot === null || !game.snapshot.isOver || soundedEnd.current) return;
+    soundedEnd.current = true;
+    const w = game.snapshot.winnerSeat;
+    const won = game.mySeat !== null && w === game.mySeat;
+    playSound(won ? 'win' : 'lose');
+    if (won) haptic.victory(); else haptic.error();
+  }, [game.snapshot, game.mySeat]);
 
   const { snapshot: snap } = game;
   if (snap === null) {
@@ -123,6 +137,9 @@ function LiveGame({ snap, game, id, userId, isGuest, tab, setTab, confirmResign,
         </span>
       </div>
       {game.error !== null && <p role="alert" style={{ color: 'var(--bad)' }}>{game.error}</p>}
+      <span aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+        {done ? 'Game over' : spectating ? 'Watching live game' : snap.turn === mySeat ? 'Your turn' : 'Opponent turn'}
+      </span>
       <div className="quoridor-game" style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) 330px', gap: 14, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingTop: 58 }}>
           <EvalBar whitePct={bottomWin} label={`You ${bottomWin}% · Opp ${topWin}%`} />
@@ -154,7 +171,7 @@ function LiveGame({ snap, game, id, userId, isGuest, tab, setTab, confirmResign,
               ))}
             </div>
             {tab === 'moves' && <MoveList actions={game.actions} size={snap.state.size} onExport={() => exportGame(snap.id, snap)} />}
-            {tab === 'chat' && <ChatBox messages={game.chat} canSend={!spectating && !done} onSend={game.sendChat} names={new Map([...(snap.seats[0] !== null ? [[snap.seats[0], nameOf(0)] as [string, string]] : []), ...(snap.seats[1] !== null ? [[snap.seats[1], nameOf(1)] as [string, string]] : [])])} myUserId={userId} />}
+            {tab === 'chat' && <ChatBox messages={game.chat} canSend={!spectating && !done} quickOnly={snap.mode === 'ranked'} onSend={game.sendChat} names={new Map([...(snap.seats[0] !== null ? [[snap.seats[0], nameOf(0)] as [string, string]] : []), ...(snap.seats[1] !== null ? [[snap.seats[1], nameOf(1)] as [string, string]] : [])])} myUserId={userId} />}
             {tab === 'review' && (done ? <ReviewPanel gameId={id} /> : <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>Review unlocks at finish. Win% bar stays live.</p>)}
           </Card>
           <Card>
@@ -193,9 +210,11 @@ function GameResult({ snap, mySeat, myUsername, isGuest, onRematch, onReview, on
 
 const btn: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px', fontSize: 13, fontWeight: 800, color: 'var(--ink)' };
 
-function ChatBox({ messages, canSend, onSend, names, myUserId }: {
+function ChatBox({ messages, canSend, quickOnly, onSend, names, myUserId }: {
   messages: { from: string; body: string; at: number }[];
   canSend: boolean;
+  /** Ranked games: preset buttons only, no free text (server-enforced). */
+  quickOnly?: boolean;
   onSend: (body: string) => void;
   names: Map<string, string>;
   myUserId: string | null;
@@ -213,12 +232,18 @@ function ChatBox({ messages, canSend, onSend, names, myUserId }: {
           </p>
         ))}
       </div>
-      {canSend && (
+      {canSend && (quickOnly === true ? (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} aria-label="quick chat">
+          {QUICK_CHAT.map((q) => (
+            <button key={q} onClick={() => onSend(q)} style={btn} title={`Send “${q}”`}>{q}</button>
+          ))}
+        </div>
+      ) : (
         <form onSubmit={(e) => { e.preventDefault(); if (draft.trim().length === 0) return; onSend(draft.trim()); setDraft(''); }} style={{ display: 'flex', gap: 8 }}>
           <TextInput value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={500} placeholder="Message…" aria-label="chat message" />
           <Button type="submit" variant="ghost">Send</Button>
         </form>
-      )}
+      ))}
     </div>
   );
 }

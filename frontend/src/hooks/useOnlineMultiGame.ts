@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { api, type MultiSnapshot } from '../lib/api.js';
+import { newActionId } from './useOnlineGame.js';
 import type { MultiAction, MultiPos, MultiWall } from '../../../engine/typescript/index.js';
 import type { ChatMessage } from './useOnlineGame.js';
 
@@ -39,10 +40,12 @@ export function useOnlineMultiGame(gameId: string, userId: string | null): Onlin
   const [error, setError] = useState<string | null>(null);
   const [clocks, setClocks] = useState<number[]>([]);
   const socketRef = useRef<Socket | null>(null);
+  const snapshotRef = useRef<MultiSnapshot | null>(null);
   const anchorRef = useRef<{ at: number; clockMs: number[]; turn: number; incrementMs: number; live: boolean } | null>(null);
 
   const ingest = useCallback((snap: MultiSnapshot) => {
     setSnapshot(snap);
+    snapshotRef.current = snap;
     setError(null);
     anchorRef.current = {
       at: Date.now(),
@@ -82,7 +85,11 @@ export function useOnlineMultiGame(gameId: string, userId: string | null): Onlin
     if (userId === null) return;
     const socket = io(wsBase(), {
       path: '/socket',
-      auth: { userId },
+      auth: (cb: (auth: Record<string, string>) => void) => {
+        api.socketTicket()
+          .then((t) => cb({ ticket: t.ticket }))
+          .catch(() => cb({ userId }));
+      },
       reconnectionAttempts: 10,
       reconnectionDelay: 800,
     });
@@ -147,11 +154,21 @@ export function useOnlineMultiGame(gameId: string, userId: string | null): Onlin
   }, []);
 
   const sendMove = useCallback((to: MultiPos) => {
-    socketRef.current?.emit('multi:move', { gameId, action: { type: 'move', to } });
+    socketRef.current?.emit('multi:move', {
+      gameId,
+      action: { type: 'move', to },
+      actionId: newActionId(),
+      ...(snapshotRef.current !== null ? { baseMoveNumber: snapshotRef.current.state.moveNumber } : {}),
+    });
   }, [gameId]);
 
   const sendWall = useCallback((wall: MultiWall) => {
-    socketRef.current?.emit('multi:wall', { gameId, action: { type: 'wall', wall } });
+    socketRef.current?.emit('multi:wall', {
+      gameId,
+      action: { type: 'wall', wall },
+      actionId: newActionId(),
+      ...(snapshotRef.current !== null ? { baseMoveNumber: snapshotRef.current.state.moveNumber } : {}),
+    });
   }, [gameId]);
 
   const sendResign = useCallback(() => {

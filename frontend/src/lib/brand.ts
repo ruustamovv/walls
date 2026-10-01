@@ -24,14 +24,20 @@ export const GLYPH = {
   ],
 } as const;
 
-/** Rating divisions — thresholds are display-only, never skill claims. */
+/** Rating divisions — spec tiers, display-only, never skill claims. */
 export const DIVISIONS = [
-  { min: 0, name: 'Drifter', color: '#8a93a0' },
-  { min: 1000, name: 'Pathfinder', color: '#1a56db' },
-  { min: 1300, name: 'Wallwright', color: '#0e9f6e' },
-  { min: 1600, name: 'Routemaster', color: '#c2410c' },
-  { min: 1900, name: 'Arenarch', color: '#7c3aed' },
-  { min: 2200, name: 'Grand Nexus', color: '#b45309' },
+  { min: 0, name: 'Novice', color: '#8a93a0' },
+  { min: 700, name: 'Rookie', color: '#7c8a9c' },
+  { min: 900, name: 'Bronze', color: '#b45309' },
+  { min: 1100, name: 'Silver', color: '#6b7280' },
+  { min: 1300, name: 'Gold', color: '#d97706' },
+  { min: 1500, name: 'Platinum', color: '#64748b' },
+  { min: 1700, name: 'Diamond', color: '#2563eb' },
+  { min: 1900, name: 'Master', color: '#7c3aed' },
+  { min: 2100, name: 'Grandmaster', color: '#c2410c' },
+  { min: 2300, name: 'Elite', color: '#0e9f6e' },
+  { min: 2500, name: 'Legend', color: '#b45309' },
+  { min: 2800, name: 'Apex', color: '#111827' },
 ] as const;
 
 export function divisionFor(rating: number): (typeof DIVISIONS)[number] {

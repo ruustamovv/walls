@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
-import { Badge, Card, Spinner } from '../../components/ui/primitives.js';
+import { Badge, Button, Card, Spinner } from '../../components/ui/primitives.js';
 
 const PERKS: { id: string; name: string; body: string }[] = [
   { id: 'AI_REVIEW_ADVANCED', name: 'Advanced review', body: 'Full per-move engine breakdowns on every game.' },
@@ -18,6 +18,18 @@ const PERKS: { id: string; name: string; body: string }[] = [
 
 export default function PremiumPage() {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.premium>> | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  async function subscribe() {
+    setCheckoutError(null);
+    try {
+      const s = await api.premiumCheckout();
+      if (s.url !== null) window.location.assign(s.url);
+      else setCheckoutError('Checkout session created but returned no URL.');
+    } catch (err) {
+      setCheckoutError(err instanceof Error ? err.message : 'Checkout failed');
+    }
+  }
 
   useEffect(() => {
     let live = true;
@@ -48,6 +60,12 @@ export default function PremiumPage() {
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0' }}>
               Payments: {status.payments}. {status.reason}
             </p>
+            {status.checkoutReady === true && (
+              <div style={{ marginTop: 10 }}>
+                <Button onClick={() => void subscribe()}>Subscribe with Stripe</Button>
+                {checkoutError !== null && <p role="alert" style={{ color: 'var(--bad)', fontSize: 13 }}>{checkoutError}</p>}
+              </div>
+            )}
           </Card>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 12 }}>
             {PERKS.map((p) => (

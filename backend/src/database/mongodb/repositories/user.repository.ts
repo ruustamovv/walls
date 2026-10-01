@@ -36,6 +36,7 @@ function toDoc(raw: Record<string, unknown>): UserDoc {
     role: raw['role'] as UserRole,
     status: raw['status'] as UserStatus,
     guest: raw['guest'] === true,
+    emailVerified: raw['emailVerified'] === true,
     ...(typeof raw['convertedFromGuestId'] === 'string' ? { convertedFromGuestId: raw['convertedFromGuestId'] } : {}),
     createdAt: raw['createdAt'] as Date,
     updatedAt: raw['updatedAt'] as Date,
@@ -130,13 +131,22 @@ export class UserRepository {
     );
     return res.matchedCount === 1;
   }
-
   async updateStatus(id: string, status: UserStatus): Promise<boolean> {
     const oid = tryToObjectId(id);
     if (oid === null) return false;
     const res = await this.users.updateOne(
       { _id: oid },
       { $set: { status, updatedAt: new Date() } },
+    );
+    return res.matchedCount === 1;
+  }
+
+  async setEmailVerified(id: string, verified: boolean): Promise<boolean> {
+    const oid = tryToObjectId(id);
+    if (oid === null) return false;
+    const res = await this.users.updateOne(
+      { _id: oid },
+      { $set: { emailVerified: verified, updatedAt: new Date() } },
     );
     return res.matchedCount === 1;
   }

@@ -1,23 +1,26 @@
 /**
- * Party table: 2–4 seats, humans + bots (local) or real players (online).
+ * Party table: 2–6 seats, humans + bots (local) or real players (online).
  * Local query: ?players=4&humans=1&size=9&walls=5
  * Online query: ?online=1&gameId=m_...
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import MultiBoard, { SEAT_COLORS } from '../../components/game/MultiBoard.js';
 import MoveList from '../../components/game/MoveList.js';
 import ResultModal from '../../components/game/ResultModal.js';
-import { Avatar, Badge, Button, Card, Spinner, TextInput } from '../../components/ui/primitives.js';
+import { Avatar, Badge, Button, Card, Segmented, Spinner, TextInput } from '../../components/ui/primitives.js';
 import { useMultiGame } from '../../hooks/useMultiGame.js';
 import { useOnlineMultiGame } from '../../hooks/useOnlineMultiGame.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import { useSession } from '../../stores/session.js';
 import { multiRotationDeg, rotationStyle } from '../../lib/orientation.js';
+import { estimateMultiWinShare, shortestToSide } from '../../../../engine/typescript/index.js';
 import { api } from '../../lib/api.js';
 import { copyText } from '../../lib/export.js';
 import { playSound } from '../../lib/sound.js';
+import { toast } from '../../stores/toasts.js';
 import type { Action } from '../../../../engine/typescript/core/types.js';
+import { presetForPlayers } from '../../../../engine/typescript/index.js';
 
 function clampInt(v: string | null, fallback: number, min: number, max: number): number {
   const n = Number(v);
@@ -31,10 +34,11 @@ export default function MultiGamePage() {
   const navigate = useNavigate();
   useTheme('arena');
 
-  const players = clampInt(params.get('players'), 4, 2, 4);
+  const players = clampInt(params.get('players'), 4, 2, 6);
   const humans = clampInt(params.get('humans'), 1, 1, players);
-  const size = clampInt(params.get('size'), players >= 4 ? 9 : 13, 5, 19);
-  const walls = clampInt(params.get('walls'), players >= 4 ? 5 : 10, 0, 30);
+  const preset = presetForPlayers(players);
+  const size = clampInt(params.get('size'), preset.size, 5, 21);
+  const walls = clampInt(params.get('walls'), preset.wallsPerPlayer, 0, 30);
   const onlineGameId = params.get('online') === '1' ? params.get('gameId') : null;
   void location;
 
@@ -108,7 +112,7 @@ export default function MultiGamePage() {
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0' }}>
               Turn: <strong style={{ color: SEAT_COLORS[state.turn % SEAT_COLORS.length] }}>{names[state.turn]}</strong> ·
               first pawn to its glowing edge wins. {players === 4 && humans === 2 ? '2v2 team: seats 1+3 vs 2+4.' : ''}
-              5–6 seats need a 15×15+ custom board — coming next.
+              {players >= 5 ? 'Shared edges use offset start lanes.' : ''}
             </p>
           </Card>
         </div>
@@ -164,6 +168,21 @@ function OnlineParty({ gameId }: { gameId: string }) {
   const nameOf = (seat: number): string =>
     game.meta?.[seat]?.username ?? (snap.seats[seat] !== null ? `Player ${seat + 1}` : 'Open seat…');
   const myPlace = mySeat === null ? null : snap.placement.indexOf(mySeat) + 1;
+  // Estimated win share per seat (ENB-004): deterministic route-based
+  // estimate, labeled as such — never presented as certainty.
+  const winShare = useMemo(() => {
+    if (done) return null;
+    try {
+      const paths = snap.state.pawns.map((p, i) => {
+        const side = (snap.state.sides[i] ?? 'S') as 'N' | 'S' | 'E' | 'W';
+        const l = shortestToSide(snap.state.walls, snap.state.size, p, side).length;
+        return l < 0 ? 999 : l;
+      });
+      return estimateMultiWinShare(paths, snap.state.wallsRemaining, snap.turn);
+    } catch {
+      return null;
+    }
+  }, [done, snap.state]);
 
   return (
     <div style={{ animation: 'quoridor-lift .3s ease' }}>
@@ -274,6 +293,11 @@ function OnlineParty({ gameId }: { gameId: string }) {
             <div style={{ fontSize: 13, display: 'grid', gap: 4, color: 'var(--muted)' }}>
               <span>{snap.timeControlId} · casual · {snap.state.size}×{snap.state.size}</span>
               <span>Move {snap.moveCount}{myPlace !== null && myPlace > 0 ? ` · you #${myPlace}` : ''}</span>
+              {winShare !== null && !done && (
+                <span title={`Estimated win share (${winShare.confidence} confidence)`}>
+                  {winShare.shares.map((s, i) => `P${i + 1} ~${s.toFixed(0)}%`).join(' · ')}
+                </span>
+              )}
               {!game.connected && <span>Reconnecting…</span>}
             </div>
           </Card>
@@ -310,6 +334,9 @@ export function PartyOnlineActions() {
   const { user } = useSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [size, setSize] = useState(9);
+  const [walls, setWalls] = useState(5);
+  const [visibility, setVisibility] = useState<'public' | 'friends' | 'unlisted' | 'private'>('public');
   const pollRef = useRef<number | null>(null);
   useEffect(() => () => {
     if (pollRef.current !== null) clearInterval(pollRef.current);
@@ -323,6 +350,7 @@ export function PartyOnlineActions() {
       const res = await api.multiMmJoin({ players, timeControl: '3+0' });
       if (res.status === 'matched') {
         playSound('match');
+        toast('good', 'Party table ready!');
         navigate(`/play/multi?online=1&gameId=${res.gameId}`);
       } else {
         setError(`Waiting for ${players}-player table… keep this tab open.`);
@@ -344,6 +372,7 @@ export function PartyOnlineActions() {
           pollRef.current = null;
           setBusy(false);
           playSound('match');
+          toast('good', 'Party table ready!');
           navigate(`/play/multi?online=1&gameId=${res.gameId}`);
         }
       } catch { /* keep polling */ }
@@ -363,7 +392,7 @@ export function PartyOnlineActions() {
     setBusy(true);
     setError(null);
     try {
-      const g = await api.multiCreate({ players, timeControl: '3+0' });
+      const g = await api.multiCreate({ players, boardSize: size, wallsPerPlayer: walls, timeControl: '3+0', visibility });
       navigate(`/play/multi?online=1&gameId=${g.id}`);
     } catch (err) {
       setBusy(false);
@@ -373,15 +402,23 @@ export function PartyOnlineActions() {
 
   return (
     <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Board</span>
+        <Segmented options={['9', '13', '15', '19', '21']} active={String(size)} onChange={(t) => setSize(Number(t))} ariaLabel="party board size" />
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Walls</span>
+        <Segmented options={['0', '5', '8', '10']} active={String(walls)} onChange={(t) => setWalls(Number(t))} ariaLabel="party walls" />
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Watch</span>
+        <Segmented options={['public', 'friends', 'unlisted', 'private'] as const} active={visibility} onChange={setVisibility} ariaLabel="party visibility" />
+      </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {[2, 3, 4].map((n) => (
+        {[2, 3, 4, 5, 6].map((n) => (
           <Button key={n} variant="ghost" disabled={busy} onClick={() => void quickMatch(n)}>
             {n}P quick match
           </Button>
         ))}
       </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {[2, 3, 4].map((n) => (
+        {[2, 3, 4, 5, 6].map((n) => (
           <Button key={n} variant="subtle" disabled={busy} onClick={() => void createPrivate(n)}>
             {n}P private link
           </Button>

@@ -13,7 +13,7 @@ import {
   type SeatSide,
 } from '../../../../engine/typescript/index.js';
 
-export const SEAT_COLORS = ['var(--player-a)', 'var(--player-b)', 'var(--player-c)', 'var(--player-d)'];
+export const SEAT_COLORS = ['var(--player-a)', 'var(--player-b)', 'var(--player-c)', 'var(--player-d)', 'var(--player-e)', 'var(--player-f)'];
 
 export interface MultiBoardProps {
   state: MultiState;

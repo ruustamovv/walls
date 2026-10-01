@@ -1,0 +1,24 @@
+# Bot tier calibration log 2026-09-30. Method: pnpm calibrate round-robins,
+# seat-swapped, 9x9/10, mixed pools of 4-10 bots, 2-6 games per pairing.
+# win_pct is an approximate aggregate across runs (pools differ per row);
+# directional only, NOT a final matrix. Full 19x19 matrix pending (BOT-005).
+bot,games,win_pct,avg_plies,avg_walls,notes
+apprentice,72,58.3,73,9.9,"800 anchor; mid-pack after noise 12 retune"
+fortress,72,61.1,71,9.9,"1200 anchor; wall-heavy overperforms in bot pools"
+architect,72,52.1,73,10.0,"1500 anchor; no-reply baseline"
+duelist,72,54.9,70,9.5,"1600 anchor; reply removed after it cost ~15pp"
+calculator,72,38.5,69,9.5,"1800 anchor soft vs architect; reply penalty suspect"
+tactician,46,44.6,68,8.7,"2000 anchor; wallBias 0.95, no reply"
+grandmaster,48,47.9,68,9.5,"2100 anchor; mid-pack of top band"
+warlord,34,52.9,69,9.4,"2200 anchor; at grandmaster level"
+elite,44,47.7,65,9.4,"2400 anchor; top band"
+legend,44,54.5,67,9.2,"2600 anchor; wallBias 1.0"
+mythic,28,65.6,69,9.1,"2800 anchor; replyWalls lever on"
+apex,28,51.8,65,9.5,"3000 anchor; replyWalls lever on"
+overmind,28,41.7,69,9.2,"3300 EXPERIMENTAL; ties legend, unproven"
+rookie,42,66.7,72,9.9,"600 anchor anomaly: pure running beats bad walls in bot pools"
+runner,42,40.5,52,4.8,"900 anchor; short games, high variance"
+
+# FULL MATRIX 19x19 games=1 (all 171 pairings, 18 games/bot): mythic 88.9, fortress 77.8, duelist 72.2, apex 66.7, apprentice 61.1, speedster/grandmaster/warlord 55.6, rookie/tactician/elite/overmind 50.0, architect/assassin/endgame 44.4, calculator 38.9, runner 22.2, legend 16.7, chaos 5.6. Artifact: matrix-2026-09-30.json.
+# Follow-ups: legend +replyWalls recovered to 58.3 (mechanism confirmed, anchor holds); rookie noise 14->20.
+# ANCHOR POLICY: bot-pool results do NOT directly set human difficulty anchors (wall-spam overperforms vs bots, humans punish it differently). Anchors kept; overmind stays experimental. No fake precision claimed.

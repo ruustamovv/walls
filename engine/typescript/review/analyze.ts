@@ -101,6 +101,25 @@ function emptyClassCounts(): { [K in MoveClass]: number } {
   return { BRILLIANT: 0, GREAT: 0, BEST: 0, EXCELLENT: 0, GOOD: 0, BOOK: 0, INACCURACY: 0, MISTAKE: 0, MISS: 0, BLUNDER: 0 };
 }
 
+/**
+ * Classification thresholds (REV-002): all engine cutoffs in one exported,
+ * documented, tunable place. Units are route-steps unless noted. Tune only
+ * from calibration data (see engine/typescript/calibration/).
+ */
+export const REVIEW_THRESHOLDS = {
+  /** Wall gain (opp steps) with cost<=1 to earn GREAT_WALL. */
+  greatWallGain: 4,
+  greatWallCost: 1,
+  /** Opp gain for a GREAT classification (played or missed best wall). */
+  greatGain: 3,
+  /** Best-wall opp gain that turns a quiet move into MISSED_CHOKE. */
+  chokeGain: 4,
+  /** Opening plies eligible for BOOK. */
+  openingPlies: 4,
+  /** totalDiff bands: excellent/good/inaccuracy/mistake maxima. */
+  bands: { excellent: 1, good: 2, inaccuracy: 4, mistake: 7 },
+} as const;
+
 function pathLen(state: GameState, player: PlayerIndex): number {
   const l = findShortestPath(state, player).length;
   return l < 0 ? 999 : l;
@@ -171,7 +190,7 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
     } else if (action.type === 'wall') {
       const gain = oppAfter - oppBefore;
       const cost = ownAfter - ownBefore;
-      if (gain >= 4 && cost <= 1) labels.push('GREAT_WALL');
+      if (gain >= REVIEW_THRESHOLDS.greatWallGain && cost <= REVIEW_THRESHOLDS.greatWallCost) labels.push('GREAT_WALL');
       else if (gain <= 0) labels.push('WALL_BLUNDER');
     } else {
       const diff = ownAfter - bestOwnAfter;
@@ -180,7 +199,7 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
     }
 
     // Missed choke is independent of what was played.
-    if (best.type === 'wall' && bestOppAfter - oppBefore >= 4 && oppAfter - oppBefore <= 1) {
+    if (best.type === 'wall' && bestOppAfter - oppBefore >= REVIEW_THRESHOLDS.chokeGain && oppAfter - oppBefore <= 1) {
       labels.push('MISSED_CHOKE');
     }
 
@@ -189,18 +208,19 @@ export function reviewGame(config: GameConfig, actions: readonly Action[], seedB
     // Best, Excellent, Good, Book (opening), Inaccuracy, Mistake, Miss, Blunder.
     const totalDiff = (ownAfter - bestOwnAfter) + (bestOppAfter - oppAfter);
     const gain = oppAfter - oppBefore;
-    const isOpening = seq < 4;
+    const isOpening = seq < REVIEW_THRESHOLDS.openingPlies;
+    const B = REVIEW_THRESHOLDS.bands;
     let cls: MoveClass;
     if (labels.includes('CLUTCH') || labels.includes('GREAT_WALL')) cls = 'BRILLIANT';
-    else if (totalDiff <= 0 && gain >= 3 && action.type === 'wall') cls = 'GREAT';
-    else if (totalDiff <= 0 && best.type === 'wall' && bestOppAfter - oppBefore >= 3) cls = 'GREAT';
+    else if (totalDiff <= 0 && gain >= REVIEW_THRESHOLDS.greatGain && action.type === 'wall') cls = 'GREAT';
+    else if (totalDiff <= 0 && best.type === 'wall' && bestOppAfter - oppBefore >= REVIEW_THRESHOLDS.greatGain) cls = 'GREAT';
     else if (totalDiff <= 0) cls = 'BEST';
     else if (isOpening && totalDiff <= 1) cls = 'BOOK';
-    else if (totalDiff === 1) cls = 'EXCELLENT';
-    else if (totalDiff === 2) cls = 'GOOD';
-    else if (labels.includes('MISSED_CHOKE') && totalDiff <= 4) cls = 'MISS';
-    else if (totalDiff <= 4) cls = 'INACCURACY';
-    else if (totalDiff <= 7) cls = 'MISTAKE';
+    else if (totalDiff <= B.excellent) cls = 'EXCELLENT';
+    else if (totalDiff <= B.good) cls = 'GOOD';
+    else if (labels.includes('MISSED_CHOKE') && totalDiff <= B.inaccuracy) cls = 'MISS';
+    else if (totalDiff <= B.inaccuracy) cls = 'INACCURACY';
+    else if (totalDiff <= B.mistake) cls = 'MISTAKE';
     else cls = 'BLUNDER';
 
     for (const l of labels) {

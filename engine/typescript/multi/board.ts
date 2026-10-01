@@ -8,15 +8,29 @@ import type { MultiPos, MultiState, SeatSide } from './types.js';
 export function defaultSides(players: number): SeatSide[] {
   if (players === 2) return ['S', 'N'];
   if (players === 3) return ['S', 'E', 'W'];
+  if (players === 5) return ['S', 'N', 'E', 'W', 'S'];
+  if (players === 6) return ['S', 'N', 'E', 'W', 'S', 'N'];
   return ['S', 'N', 'E', 'W'];
 }
 
-export function startFor(side: SeatSide, size: number): MultiPos {
+/**
+ * Start cell for a side. `occurrence` handles shared edges (5P doubles S):
+ * first pawn takes mid-lane, later ones offset by ±2 lanes (clamped
+ * inside). Goals are full edges, so shared-edge racers stay fair.
+ */
+export function startFor(side: SeatSide, size: number, occurrence = 0): MultiPos {
   const mid = Math.floor(size / 2);
-  if (side === 'S') return { r: 0, c: mid };
-  if (side === 'N') return { r: size - 1, c: mid };
-  if (side === 'E') return { r: mid, c: 0 };
-  return { r: mid, c: size - 1 };
+  const lane = Math.min(size - 2, Math.max(1, mid + laneOffset(occurrence)));
+  if (side === 'S') return { r: 0, c: lane };
+  if (side === 'N') return { r: size - 1, c: lane };
+  if (side === 'E') return { r: lane, c: 0 };
+  return { r: lane, c: size - 1 };
+}
+
+function laneOffset(occurrence: number): number {
+  if (occurrence <= 0) return 0;
+  const step = Math.ceil(occurrence / 2) * 2;
+  return occurrence % 2 === 1 ? -step : step;
 }
 
 export function isGoal(side: SeatSide, size: number, p: MultiPos): boolean {

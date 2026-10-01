@@ -65,6 +65,7 @@ export async function persistMultiGameCreated(g: MultiGameRecord): Promise<void>
       engineVersion: g.state.rulesVersion,
       players,
       variant: 'multi',
+      visibility: g.visibility,
     });
     docIdByEngineId.set(g.id, doc._id);
   } catch (err) {

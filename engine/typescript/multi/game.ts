@@ -10,6 +10,7 @@ import {
   MULTI_RULES_VERSION,
   type MultiAction,
   type MultiConfig,
+  type MultiPos,
   type MultiState,
   type MultiValidation,
   type MultiWall,
@@ -18,8 +19,8 @@ import {
 
 export function createMultiGame(config: MultiConfig, seed?: number): MultiState {
   const { players, size } = config;
-  if (!Number.isInteger(players) || players < 2 || players > 4) {
-    throw new Error(`Invalid player count ${String(players)}: expected 2-4`);
+  if (!Number.isInteger(players) || players < 2 || players > 6) {
+    throw new Error(`Invalid player count ${String(players)}: expected 2-6`);
   }
   if (!Number.isInteger(size) || size < 5) {
     throw new Error(`Invalid board size ${String(size)}: expected integer >= 5`);
@@ -30,6 +31,19 @@ export function createMultiGame(config: MultiConfig, seed?: number): MultiState 
   }
   const sides = config.sides ?? defaultSides(players);
   if (sides.length !== players) throw new Error('sides length must equal player count');
+  const seen = new Map<SeatSide, number>();
+  const pawns = sides.map((s) => {
+    const o = seen.get(s) ?? 0;
+    seen.set(s, o + 1);
+    return startFor(s, size, o);
+  });
+  for (let i = 0; i < pawns.length; i++) {
+    for (let j = i + 1; j < pawns.length; j++) {
+      const a = pawns[i] as MultiPos;
+      const b = pawns[j] as MultiPos;
+      if (a.r === b.r && a.c === b.c) throw new Error('duplicate start cells: sides need distinct lanes');
+    }
+  }
   const resolvedSeed = seed ?? config.seed;
   return {
     size,
@@ -37,7 +51,7 @@ export function createMultiGame(config: MultiConfig, seed?: number): MultiState 
     players,
     sides: [...sides],
     turn: 0,
-    pawns: sides.map((s) => startFor(s, size)),
+    pawns,
     walls: [],
     wallsRemaining: Array.from({ length: players }, () => walls),
     winner: null,

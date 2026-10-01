@@ -2,9 +2,10 @@
  * Offline game screen: local 2P or vs engine bot.
  * Query: ?mode=local|bot&bot=<id>&size=9&walls=10&clock=<sec>&inc=<sec>
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { findShortestPath, getBot, quip } from '../../../../engine/typescript/index.js';
+import { findShortestPath, getBot, quip, validateMove } from '../../../../engine/typescript/index.js';
+import type { Action, GameState } from '../../../../engine/typescript/core/types.js';
 import PathMeter from '../../components/game/PathMeter.js';
 import GameBoard from '../../components/game/GameBoard.js';
 import PlayerCard from '../../components/game/PlayerCard.js';
@@ -30,6 +31,8 @@ export default function LocalGamePage() {
   const fromCode = params.get('from');
   const from = fromCode !== null && fromCode !== '' ? decodePosition(fromCode) : null;
   const isNemesis = (params.get('bot') ?? '') === 'nemesis';
+  const isMirror = (params.get('bot') ?? '') === 'mirror';
+  const isGhost = (params.get('bot') ?? '') === 'ghost';
   const [nemesisDef, setNemesisDef] = useState<import('../../../../engine/typescript/index.js').BotDef | null>(null);
   useEffect(() => {
     if (!isNemesis) return;
@@ -53,13 +56,64 @@ export default function LocalGamePage() {
       }).catch(() => undefined);
     });
   }, [isNemesis]);
-  const resolvedBot = isNemesis ? nemesisDef : bot;
-  const game = useLocalGame({
-    size: from?.state.size ?? (isNemesis ? 15 : size),
-    wallsPerPlayer: from?.state.wallsPerPlayer ?? (isNemesis ? 20 : walls),
+  // Mirror reuses the nemesis custom-personality pipeline.
+  const [mirrorDef, setMirrorDef] = useState<import('../../../../engine/typescript/index.js').BotDef | null>(null);
+  useEffect(() => {
+    if (!isMirror) return;
+    try {
+      const raw = sessionStorage.getItem('quoridor-mirror');
+      if (raw !== null) {
+        setMirrorDef(JSON.parse(raw) as import('../../../../engine/typescript/index.js').BotDef);
+        return;
+      }
+    } catch {
+      // fall through to live fetch
+    }
+    void import('../../lib/api.js').then(({ api }) => {
+      api.mirror().then((p) => {
+        setMirrorDef({
+          id: 'mirror', name: 'Your Mirror', rating: 1500, difficulty: 4,
+          style: 'Plays like you', description: p.explanation,
+          weights: { ...p.weights }, wallCandidates: p.wallCandidates, noise: p.noise,
+          wallBias: p.wallBias, replySearch: p.replySearch, budgetMs: p.budgetMs,
+        });
+      }).catch(() => undefined);
+    });
+  }, [isMirror]);
+  // Ghost: replay the opponent's exact moves from one of your games.
+  // Diverged positions fall back to rookie search (see scripted driver).
+  const [ghostScript, setGhostScript] = useState<{ actions: Action[]; size: number; wallsPerPlayer: number } | null>(null);
+  useEffect(() => {
+    if (!isGhost) return;
+    try {
+      const raw = sessionStorage.getItem('quoridor-ghost');
+      if (raw !== null) {
+        const parsed = JSON.parse(raw) as { actions: Action[]; size: number; wallsPerPlayer: number };
+        if (Array.isArray(parsed.actions)) setGhostScript(parsed);
+      }
+    } catch {
+      // no script — rookie fallback covers every turn
+    }
+  }, [isGhost]);
+  const ghostMove = useCallback((state: GameState, moveNumber: number): Action | null => {
+    if (ghostScript === null) return null;
+    const next = ghostScript.actions[moveNumber];
+    if (next === undefined) return null;
+    try {
+      return validateMove(state, next).ok ? next : null;
+    } catch {
+      return null;
+    }
+  }, [ghostScript]);
+  const resolvedBot = isNemesis ? nemesisDef : isMirror ? mirrorDef : isGhost ? null : bot;
+  const ghostName = isGhost ? 'Your Ghost' : null;
+  const game = useLocalGame({    size: from?.state.size ?? (isNemesis || isMirror ? 15 : isGhost && ghostScript !== null ? ghostScript.size : size),
+    wallsPerPlayer: from?.state.wallsPerPlayer ?? (isNemesis || isMirror ? 20 : isGhost && ghostScript !== null ? ghostScript.wallsPerPlayer : walls),
     mode,
-    botId: isNemesis ? 'nemesis' : (bot?.id ?? 'rookie'),
-    ...(isNemesis && nemesisDef !== null ? { customBot: nemesisDef } : {}),
+    botId: isNemesis ? 'nemesis' : isMirror ? 'mirror' : isGhost ? 'ghost' : (bot?.id ?? 'rookie'),
+    ...((isNemesis && nemesisDef !== null ? { customBot: nemesisDef } : {})),
+    ...((isMirror && mirrorDef !== null ? { customBot: mirrorDef } : {})),
+    ...(isGhost ? { scripted: ghostMove } : {}),
     clockMs: clockSec * 1000, incrementMs: incSec * 1000,
     ...(from !== null ? { from } : {}),
   });
@@ -97,7 +151,7 @@ export default function LocalGamePage() {
     return { a: a.path, b: b.path };
   }, [state, done]);
 
-  const topName = mode === 'bot' ? (resolvedBot?.name ?? 'Bot') : 'Player 2';
+  const topName = mode === 'bot' ? (ghostName ?? resolvedBot?.name ?? 'Bot') : 'Player 2';
   const bottomName = mode === 'bot' ? 'You' : 'Player 1';
   const [flipped, setFlipped] = useState(false);
   // Seat 0 (You / Player 1) always renders at the bottom: the board is
@@ -113,7 +167,7 @@ export default function LocalGamePage() {
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
         <h1 style={{ margin: 0, fontSize: 22 }}>
-          {mode === 'bot' ? `You vs ${resolvedBot?.name ?? 'Bot'}` : 'Local game'}
+          {mode === 'bot' ? `You vs ${ghostName ?? resolvedBot?.name ?? 'Bot'}` : 'Local game'}
         </h1>
         {game.botThinking && <span style={{ color: 'var(--muted)', fontSize: 14, animation: 'nexus-pulse 1s infinite' }}>thinking…</span>}
         {mode === 'bot' && banterOn && banter !== null && (

@@ -3,7 +3,7 @@
  * key moves + retry + coach explains (chess.com-style).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { applyMove, createGame, findShortestPath, parseBestAction } from '../../../../engine/typescript/index.js';
+import { applyMove, BALANCED_WEIGHTS, createGame, findShortestPath, parseBestAction, topCandidates } from '../../../../engine/typescript/index.js';
 import type { Action, GameState } from '../../../../engine/typescript/core/types.js';
 import { api } from '../../lib/api.js';
 import { actionName } from '../../lib/coords.js';
@@ -72,6 +72,52 @@ function RetryBoard({ review, seq, onClose }: { review: Review; seq: number; onC
         {attempt !== null && !(verdict?.solved ?? false) && <Button size="sm" variant="ghost" onClick={() => setAttempt(null)}>Reset</Button>}
         <Button size="sm" variant="subtle" onClick={onClose}>Done</Button>
       </div>
+    </div>
+  );
+}
+
+/** Engine best + alternatives with route impact (ENB-002). Computed locally
+ *  with the same deterministic search the review used — no invented data. */
+function Alternatives({ review, seq }: { review: Review; seq: number }) {
+  const [open, setOpen] = useState(false);
+  const cands = useMemo(() => {
+    if (!open) return null;
+    try {
+      let state = createGame({ size: review.size, wallsPerPlayer: review.wallsPerPlayer });
+      for (let i = 0; i < seq && i < review.moves.length; i++) {
+        const m = review.moves[i];
+        if (m === undefined) break;
+        state = applyMove(state, m.action as Action).state;
+      }
+      return topCandidates(state, {
+        weights: { ...BALANCED_WEIGHTS }, wallCandidates: 48, noise: 0,
+        wallBias: 1, replySearch: false, budgetMs: 200, seed: 1000 + seq,
+      }, 3);
+    } catch {
+      return null;
+    }
+  }, [open, review, seq]);
+  return (
+    <div style={{ marginTop: 6 }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', fontSize: 13, fontWeight: 700 }}
+      >
+        {open ? 'Hide alternatives' : 'Best + alternatives'}
+      </button>
+      {open && (cands === null || cands.length === 0 ? <p style={{ color: 'var(--muted)', fontSize: 13, margin: '4px 0 0' }}>No alternatives computed.</p> : (
+        <ol style={{ margin: '4px 0 0', paddingLeft: 18, fontSize: 13, display: 'grid', gap: 2 }}>
+          {cands.map((c, i) => (
+            <li key={i}>
+              <strong>{actionName(c.action as Action, review.size)}</strong>{' '}
+              <span style={{ color: 'var(--muted)' }}>
+                opp {c.oppGain >= 0 ? `+${c.oppGain}` : c.oppGain} · you {c.ownCost >= 0 ? `+${c.ownCost}` : c.ownCost}
+                {i === 0 ? ' · engine best' : ''}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ))}
     </div>
   );
 }
@@ -150,6 +196,7 @@ export default function ReviewPanel({ gameId }: { gameId: string }) {
                 <Button size="sm" variant="ghost" onClick={() => setRetrySeq(retrySeq === m.seq ? null : m.seq)}>{retrySeq === m.seq ? 'Hide' : 'Retry'}</Button>
                 <button onClick={() => void askCoach(m)} disabled={coachBusy} style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', fontSize: 13, fontWeight: 700 }}>Coach</button>
               </div>
+              <Alternatives review={review} seq={m.seq} />
               {retrySeq === m.seq && <RetryBoard review={review} seq={m.seq} onClose={() => setRetrySeq(null)} />}
               {coachFor === m.seq && coachText[m.seq] !== undefined && <p style={{ fontSize: 13, background: 'var(--primary-soft)', borderRadius: 8, padding: '8px 10px' }}>{coachText[m.seq]}</p>}
             </div>

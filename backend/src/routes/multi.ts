@@ -4,7 +4,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { GameActionSchema } from '../common/validation/schemas.js';
+import { normalizeIntent } from '../common/validation/schemas.js';
 import { AuthError, ValidationError } from '../common/errors/errors.js';
 import { getAuthService } from '../modules/auth/service.js';
 import { multiGamesService } from '../modules/multiGames/service.js';
@@ -33,15 +33,16 @@ async function requireUserId(req: FastifyRequest): Promise<string> {
 }
 
 const CreateMultiSchema = z.object({
-  players: z.number().int().min(2).max(4).default(4),
-  boardSize: z.number().int().min(5).max(19).optional(),
+  players: z.number().int().min(2).max(6).default(4),
+  boardSize: z.number().int().min(5).max(25).optional(),
   wallsPerPlayer: z.number().int().min(0).max(30).optional(),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1']).default('3+0'),
+  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
+  visibility: z.enum(['public', 'friends', 'unlisted', 'private']).optional(),
 });
 
 const MultiJoinSchema = z.object({
-  players: z.number().int().min(2).max(4).default(4),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1']).default('3+0'),
+  players: z.number().int().min(2).max(6).default(4),
+  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
 });
 
 export async function registerMulti(app: FastifyInstance): Promise<void> {
@@ -56,6 +57,7 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
       ...(parsed.data.boardSize !== undefined ? { boardSize: parsed.data.boardSize } : {}),
       ...(parsed.data.wallsPerPlayer !== undefined ? { wallsPerPlayer: parsed.data.wallsPerPlayer } : {}),
       timeControl: parsed.data.timeControl,
+      ...(parsed.data.visibility !== undefined ? { visibility: parsed.data.visibility } : {}),
     });
     void persistMultiGameCreated(g).catch(() => undefined);
     return multiGamesService.snapshot(g);
@@ -87,9 +89,12 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
   app.post('/api/v1/multi/games/:id/move', async (req) => {
     const userId = await requireUserId(req);
     const { id } = req.params as { id: string };
-    const parsed = GameActionSchema.safeParse(req.body);
+    const parsed = normalizeIntent(req.body);
     if (!parsed.success) throw new ValidationError('Invalid action');
-    const g = multiGamesService.play(id, userId, parsed.data);
+    const g = multiGamesService.play(id, userId, parsed.data.action, {
+      ...(parsed.data.actionId !== undefined ? { actionId: parsed.data.actionId } : {}),
+      ...(parsed.data.baseMoveNumber !== undefined ? { baseMoveNumber: parsed.data.baseMoveNumber } : {}),
+    });
     void persistMultiMoveAppended(g).catch(() => undefined);
     if (g.status === 'finished' && !g.settled) {
       await settleMultiGame(g);
@@ -135,6 +140,7 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/multi/games/live', async () => ({
     games: multiGamesService
       .listActive(20)
+      .filter((g) => g.visibility === 'public')
       .map((g) => ({ id: g.id, players: g.state.players, timeControl: g.timeControlId, moveCount: g.actions.length })),
   }));
 

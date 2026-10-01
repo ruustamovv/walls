@@ -1,10 +1,11 @@
 /**
- * Multiplayer (2–4 seats) wall-and-pawn engine.
+ * Multiplayer (2–6 seats) wall-and-pawn engine.
  *
  * The classic 2P engine in ../core+../rules is untouched; this module
  * generalizes the same Quoridor rules to N seats: every pawn races for its
  * own goal SIDE, turns rotate, walls must preserve a route for EVERY pawn.
- * Online 4P arrives later — local and bot play work today.
+ * 5P/6P share edges (S, then N) with offset start lanes since a square has
+ * four edges. Online 4P arrives later — local and bot play work today.
  */
 
 /** Goal side of a seat: the edge it must reach. */
@@ -24,14 +25,21 @@ export interface MultiWall {
 }
 
 export interface MultiConfig {
-  /** Seats at the table: 2, 3 or 4. */
+  /** Seats at the table: 2, 3, 4 or 5. */
   players: number;
   size: number;
   wallsPerPlayer: number;
-  /** Goal sides in seat order. Defaults: 2P [S,N], 3P [S,E,W], 4P [S,N,E,W]. */
+  /** Goal sides in seat order. 2P [S,N], 3P [S,E,W], 4P [S,N,E,W], 5P +S, 6P +S+N. */
   sides?: SeatSide[];
   rulesVersion?: string;
   seed?: number;
+  /**
+   * Opt-in continuation (MLT-007): when true, a seat reaching its goal is
+   * recorded in finish order and removed from turn rotation instead of
+   * ending the game. The game ends when ≤1 active seat remains.
+   * Default false — first goal wins, exactly as before.
+   */
+  continueAfterWin?: boolean;
 }
 
 export const MULTI_RULES_VERSION = '1.0.0-m1';
@@ -45,7 +53,25 @@ export const MULTI_PRESETS = {
   trio13: { players: 3, size: 13, wallsPerPlayer: 10 },
   /** Grand melee: 15x15 four-player. */
   melee15: { players: 4, size: 15, wallsPerPlayer: 10 },
+  /** Five-player free-for-all: roomy 19x19, shared S edge. */
+  party5: { players: 5, size: 19, wallsPerPlayer: 8 },
+  /** Six-player free-for-all: grand 21x21, shared S+N edges. */
+  party6: { players: 6, size: 21, wallsPerPlayer: 8 },
 } as const;
+
+/**
+ * Canonical default preset per player count (MLT-006): the single source
+ * backends and frontends derive quick-match defaults from, so scaling
+ * stays consistent everywhere. Values are initial balancing (see
+ * docs/game-rules/multi-balance.md), adjustable per mode.
+ */
+export function presetForPlayers(players: number): { size: number; wallsPerPlayer: number } {
+  if (players <= 2) return { size: MULTI_PRESETS.duel.size, wallsPerPlayer: MULTI_PRESETS.duel.wallsPerPlayer };
+  if (players === 3) return { size: MULTI_PRESETS.trio13.size, wallsPerPlayer: MULTI_PRESETS.trio13.wallsPerPlayer };
+  if (players === 5) return { size: MULTI_PRESETS.party5.size, wallsPerPlayer: MULTI_PRESETS.party5.wallsPerPlayer };
+  if (players >= 6) return { size: MULTI_PRESETS.party6.size, wallsPerPlayer: MULTI_PRESETS.party6.wallsPerPlayer };
+  return { size: MULTI_PRESETS.party4.size, wallsPerPlayer: MULTI_PRESETS.party4.wallsPerPlayer };
+}
 
 export type MultiAction = { type: 'move'; to: MultiPos } | { type: 'wall'; wall: MultiWall };
 
@@ -64,6 +90,12 @@ export interface MultiState {
   lastAction: MultiAction | null;
   rulesVersion: string;
   seed?: number;
+  /** Opt-in continuation mode (MLT-007). */
+  continueAfterWin: boolean;
+  /** Seats that reached their goal and left rotation (finish order). */
+  eliminated: number[];
+  /** Winner-first seat order once isOver. */
+  placement: number[];
 }
 
 export type MultiRejectReason =

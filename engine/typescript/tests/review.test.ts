@@ -5,7 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyMove, createGame } from '../index.js';
-import { reviewGame } from '../review/analyze.js';
+import { reviewGame, REVIEW_THRESHOLDS } from '../review/analyze.js';
 import { botAction, getBot } from '../bots/personalities.js';
 
 describe('review: labels', () => {
@@ -15,6 +15,13 @@ describe('review: labels', () => {
       { type: 'wall', wall: { r: 7, c: 0, orientation: 'h' } },
     ]);
     assert.ok(review.moves[0]?.labels.includes('WALL_BLUNDER'));
+  });
+
+  it('exposes tunable thresholds (REV-002) used by classification', () => {
+    assert.equal(REVIEW_THRESHOLDS.greatWallGain, 4);
+    assert.equal(REVIEW_THRESHOLDS.greatGain, 3);
+    assert.equal(REVIEW_THRESHOLDS.chokeGain, 4);
+    assert.deepEqual(REVIEW_THRESHOLDS.bands, { excellent: 1, good: 2, inaccuracy: 4, mistake: 7 });
   });
 
   it('is deterministic across runs', () => {
@@ -49,8 +56,7 @@ describe('review: labels', () => {
     assert.ok(total >= 1);
   });
 
-  it('parses best-action strings back into actions', async () => {
-    const { parseBestAction } = await import('../review/analyze.js');
+  it('parses best-action strings back into actions', async () => {    const { parseBestAction } = await import('../review/analyze.js');
     assert.deepEqual(parseBestAction('move 3,4'), { type: 'move', to: { r: 3, c: 4 } });
     assert.deepEqual(parseBestAction('wall h 2,2'), { type: 'wall', wall: { orientation: 'h', r: 2, c: 2 } });
     assert.equal(parseBestAction('nonsense'), null);

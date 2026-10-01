@@ -20,6 +20,8 @@ export async function settleMultiGame(g: MultiGameRecord): Promise<void> {
   }
   try {
     const { NotificationRepository } = await import('../../database/mongodb/repositories/extended.repositories.js');
+    const { recordGameConduct } = await import('../fairplay/outcomes.js');
+    void recordGameConduct([...g.playerIds], g.state.turn, g.finishReason);
     const { SettingsRepository } = await import('../../database/mongodb/repositories/settings.repository.js');
     const notifs = new NotificationRepository(db);
     const settings = new SettingsRepository(db);
@@ -64,7 +66,7 @@ export async function settleMultiGame(g: MultiGameRecord): Promise<void> {
         ),
         result: { winnerSeat: g.winnerSeat, reason: g.finishReason ?? 'goal' },
         hash: hashMultiState(g.state),
-        visibility: 'public',
+        visibility: g.visibility,
       });
     }
     await persistMultiGameFinished(g);

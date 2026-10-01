@@ -1,9 +1,10 @@
 /**
- * Multiplayer engine package (2–4 seats). The classic 2P core is untouched.
+ * Multiplayer engine package (2–6 seats). The classic 2P core is untouched.
  */
 export {
   MULTI_PRESETS,
   MULTI_RULES_VERSION,
+  presetForPlayers,
   type MultiAction,
   type MultiConfig,
   type MultiOrientation,
@@ -28,3 +29,11 @@ export {
   type MultiApplyResult,
 } from './game.js';
 export { chooseMultiBotAction, MULTI_BOT_DEFAULT, type MultiBotOpts } from './bots.js';
+export {
+  gradeMultiAttempt,
+  multiPuzzleDaily,
+  seededMultiPuzzle,
+  MULTI_PUZZLE_NEED_GAIN,
+  type MultiAttemptVerdict,
+  type MultiPuzzle,
+} from './puzzles.js';

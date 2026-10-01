@@ -18,6 +18,8 @@ const TC_NAMES: Record<string, string> = {
   '3+1': 'Blitz 3+1',
   '5+0': 'Rapid 5+0',
   '5+1': 'Rapid 5+1',
+  '10+0': 'Classic 10+0',
+  '10+5': 'Classic 10+5',
 };
 
 export function timeControlName(id: string): string {
@@ -29,6 +31,7 @@ export function ratingModeFor(timeControlId: string): string {
   if (timeControlId.startsWith('1+')) return 'bullet';
   if (timeControlId.startsWith('3+')) return 'blitz';
   if (timeControlId.startsWith('5+')) return 'rapid';
+  if (timeControlId.startsWith('10+')) return 'classic';
   return 'casual';
 }
 

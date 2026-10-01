@@ -17,6 +17,10 @@ export interface MatchTicket {
   /** Server-side stored rating — never accept client-provided rating. */
   rating: number;
   joinedAt: number;
+  /** Fair-play conduct 0–100 (server-resolved, default 100 unknown). */
+  behavior?: number;
+  /** Coarse client-declared locality (e.g. timezone); preference only. */
+  region?: string;
 }
 
 export interface MatchPair {
@@ -59,6 +63,8 @@ export function ratingWindowFor(waitedMs: number): number {
 
 export class MatchmakingQueue {
   private readonly store: QueueStore;
+  /** Recent pairings (pairKey -> matchedAt) for rematch avoidance. */
+  private readonly recentPairs = new Map<string, number>();
 
   constructor(store: QueueStore = new InMemoryQueueStore()) {
     this.store = store;
@@ -83,30 +89,78 @@ export class MatchmakingQueue {
 
   /**
    * Try to pair the longest-waiting ticket with the best partner.
-   * Returns null when no partner is within the (expanded) window yet.
+   * Scoring order: rating window (expanding) → behavior compatibility
+   * (trust gap widens with wait) → same-region preference (soft, falls
+   * back cross-region after 20s) → rematch avoidance (10min, bypassed
+   * after 60s of waiting). Returns null when nobody fits yet.
    */
   async tryMatch(now: number = Date.now()): Promise<MatchPair | null> {
     const tickets = await this.store.list();
     if (tickets.length < 2) return null;
     const head = tickets[0];
     if (head === undefined) return null;
-    const window = ratingWindowFor(now - head.joinedAt);
+    const waitedMs = now - head.joinedAt;
+    const window = ratingWindowFor(waitedMs);
+    const { behaviorGapAllowed } = await import('../fairplay/service.js');
+    const gapAllowed = behaviorGapAllowed(waitedMs);
+    const headBehavior = head.behavior ?? 100;
+
+    this.sweepPairs(now);
+    const rematchBlocked = (otherId: string): boolean => {
+      if (waitedMs > 60_000) return false;
+      const at = this.recentPairs.get(pairKey(head.userId, otherId));
+      return at !== undefined && now - at < 10 * 60_000;
+    };
+
+    const fits = (cand: MatchTicket): boolean => {
+      if (cand.mode !== head.mode || cand.timeControl !== head.timeControl) return false;
+      if (Math.abs(cand.rating - head.rating) > window) return false;
+      if (Math.abs((cand.behavior ?? 100) - headBehavior) > gapAllowed) return false;
+      if (rematchBlocked(cand.userId)) return false;
+      return true;
+    };
+
+    // Prefer same-region partners early; go cross-region after 20s.
+    // An empty local pool before that means WAIT (return null), not an
+    // immediate cross-region pair.
+    const sameRegion = (cand: MatchTicket): boolean =>
+      head.region === undefined || cand.region === undefined || head.region === cand.region;
+    let pool = tickets.slice(1).filter(fits);
+    if (waitedMs < 20_000) {
+      pool = pool.filter(sameRegion);
+      if (pool.length === 0) return null;
+    }
 
     let best: MatchTicket | null = null;
-    let bestGap = Number.POSITIVE_INFINITY;
-    for (let i = 1; i < tickets.length; i++) {
-      const cand = tickets[i];
-      if (cand === undefined) continue;
-      if (cand.mode !== head.mode || cand.timeControl !== head.timeControl) continue;
-      const gap = Math.abs(cand.rating - head.rating);
-      if (gap <= window && gap < bestGap) {
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const cand of pool) {
+      // Composite: rating gap dominates, behavior gap breaks ties.
+      const score = Math.abs(cand.rating - head.rating) * 100 + Math.abs((cand.behavior ?? 100) - headBehavior);
+      if (score < bestScore) {
         best = cand;
-        bestGap = gap;
+        bestScore = score;
       }
     }
     if (best === null) return null;
     await this.store.remove(head.userId);
     await this.store.remove(best.userId);
+    this.recentPairs.set(pairKey(head.userId, best.userId), now);
     return { a: head, b: best };
   }
+
+  /** Test hook: pretend two users just met (rematch-avoidance checks). */
+  markPaired(a: string, b: string, now: number = Date.now()): void {
+    this.recentPairs.set(pairKey(a, b), now);
+  }
+
+  private sweepPairs(now: number): void {
+    if (this.recentPairs.size < 200) return;
+    for (const [k, at] of this.recentPairs) {
+      if (now - at > 10 * 60_000) this.recentPairs.delete(k);
+    }
+  }
+}
+
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
 }

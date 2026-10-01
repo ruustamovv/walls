@@ -5,10 +5,12 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import GameBoard from '../../components/game/GameBoard.js';
+import MultiBoard from '../../components/game/MultiBoard.js';
 import { Badge, Button, Card, ErrorBox, Spinner } from '../../components/ui/primitives.js';
 import { api } from '../../lib/api.js';
 import { useSession } from '../../stores/session.js';
 import type { GameState } from '../../../../engine/typescript/core/types.js';
+import type { MultiState, SeatSide } from '../../../../engine/typescript/index.js';
 
 export default function PuzzlesPage() {
   const { user } = useSession();
@@ -104,6 +106,84 @@ export default function PuzzlesPage() {
         </Card>
       </div>
       <style>{`@media (max-width: 900px) { .nexus-game-layout { grid-template-columns: minmax(0,1fr) !important; } }`}</style>
+      <PartyPuzzle userLoggedIn={user !== null} />
+    </div>
+  );
+}
+
+function PartyPuzzle({ userLoggedIn }: { userLoggedIn: boolean }) {
+  const navigate = useNavigate();
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.multiPuzzleDaily>> | null>(null);
+  const [verdict, setVerdict] = useState<Awaited<ReturnType<typeof api.multiPuzzleAttempt>> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.multiPuzzleDaily()
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  async function submit(wall: { r: number; c: number; orientation: 'h' | 'v' }) {
+    if (!userLoggedIn) {
+      navigate('/login?next=/puzzles');
+      return;
+    }
+    setBusy(true);
+    try {
+      setVerdict(await api.multiPuzzleAttempt(wall));
+    } catch {
+      setVerdict(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (data === null) return null;
+  const state: MultiState = {
+    size: data.size,
+    wallsPerPlayer: 5,
+    players: data.players,
+    sides: (['S', 'N', 'E', 'W'].slice(0, data.players) as SeatSide[]),
+    turn: data.turn,
+    pawns: data.pawns.map((p) => ({ ...p })),
+    walls: data.walls.map((w) => ({ ...w })),
+    wallsRemaining: [...data.wallsRemaining],
+    winner: null,
+    isOver: false,
+    moveNumber: 0,
+    lastAction: null,
+    rulesVersion: '1.0.0-m1',
+  };
+
+  return (
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0 }}>Party puzzle</h2>
+        <Badge tone="info">{data.date} · {data.players} players</Badge>
+        {verdict?.solved === true && <Badge tone="good">solved +{verdict.gain}</Badge>}
+      </div>
+      <p style={{ color: 'var(--muted)', margin: 0 }}>{data.prompt}</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }} className="nexus-game-layout">
+        <div style={{ maxWidth: 560 }}>
+          <MultiBoard
+            state={state}
+            humanSeats={[data.turn]}
+            interactive={!busy && verdict?.solved !== true}
+            onMove={() => undefined}
+            onWall={submit}
+          />
+        </div>
+        <Card>
+          <h3 style={{ margin: '0 0 8px' }}>Your attempt</h3>
+          {verdict === null
+            ? <p style={{ color: 'var(--muted)', margin: 0 }}>Choke the leader — every attempt counts toward XP.</p>
+            : verdict.solved
+              ? <p style={{ margin: 0 }}><Badge tone="good">Solved! +{verdict.gain} on the leader</Badge></p>
+              : <p style={{ margin: 0 }}><Badge tone={verdict.legal ? 'warn' : 'bad'}>{verdict.legal ? `Only +${verdict.gain}, need +${verdict.need}` : 'Illegal wall'}</Badge></p>}
+        </Card>
+      </div>
     </div>
   );
 }

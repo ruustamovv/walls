@@ -71,17 +71,21 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
     const { RatingRepository } = await import('../database/mongodb/repositories/rating.repository.js');
     const { GameRepository } = await import('../database/mongodb/repositories/game.repository.js');
+    const { FairPlayRepository } = await import('../database/mongodb/repositories/fairplay.repository.js');
+    const { conductLevel } = await import('../modules/fairplay/service.js');
     const db = await getMongoDb();
     const user = await new UserRepository(db).findById(id);
     if (user === null) throw new ValidationError('User not found');
     const ratings = new RatingRepository(db);
-    const modes = ['bullet', 'blitz', 'rapid', 'casual'] as const;
+    const modes = ['bullet', 'blitz', 'rapid', 'classic', 'casual'] as const;
     const rows = await Promise.all(modes.map((m) => ratings.get(id, m)));
     const games = await new GameRepository(db).listByUser(id, 10);
+    const conduct = await new FairPlayRepository(db).get(id).catch(() => null);
     return {
       user: { id: user._id, username: user.username, email: user.email, role: user.role, status: user.status, createdAt: user.createdAt },
       ratings: modes.map((m, i) => ({ mode: m, rating: rows[i]?.rating ?? null, games: rows[i]?.games ?? 0 })),
       recentGames: games.map((g) => ({ id: g.engineId ?? g._id, status: g.status, result: g.result ?? null })),
+      fairPlay: conduct === null ? null : { score: conduct.score, level: conductLevel(conduct.score), abandons: conduct.abandons, completions: conduct.completions, abuses: conduct.abuses },
     };
   });
 
@@ -176,8 +180,34 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
-  /** @openapi GET /api/v1/admin/stats — 7-day series + AI usage. */
-  app.get('/api/v1/admin/stats', async (req) => {
+  /** @openapi GET /api/v1/admin/billing — provider status, events, grants. */
+  app.get('/api/v1/admin/billing', async (req) => {
+    await requireRole(req, 'moderator');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { COLLECTIONS } = await import('../database/mongodb/collections.js');
+    const { paymentStatus } = await import('../modules/payments/provider.js');
+    const db = await getMongoDb();
+    const pay = paymentStatus();
+    const events = await db.collection(COLLECTIONS.stripe_events)
+      .find({}).sort({ createdAt: -1 }).limit(20).toArray().catch(() => []);
+    const grants = await db.collection(COLLECTIONS.entitlements)
+      .aggregate([
+        { $group: { _id: '$entitlement', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]).toArray().catch(() => []);
+    return {
+      provider: pay.provider,
+      checkoutReady: pay.checkoutReady,
+      reason: pay.reason,
+      recentEvents: events.map((e) => {
+        const row = e as unknown as Record<string, unknown>;
+        return { eventId: String(row['eventId'] ?? ''), type: String(row['type'] ?? ''), userId: String(row['userId'] ?? ''), createdAt: row['createdAt'] ?? null };
+      }),
+      grantsByEntitlement: (grants as { _id: string; count: number }[]).map((g) => ({ entitlement: g._id ?? '?', count: g.count })),
+    };
+  });
+
+  /** @openapi GET /api/v1/admin/stats — 7-day series + AI usage. */  app.get('/api/v1/admin/stats', async (req) => {
     await requireRole(req, 'moderator');
     const { getMongoDb } = await import('../database/mongodb/client.js');
     const db = await getMongoDb();
@@ -246,10 +276,34 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     const { getMongoDb } = await import('../database/mongodb/client.js');
     const { ReportRepository } = await import('../database/mongodb/repositories/social.repository.js');
     const db = await getMongoDb();
+    const report = await new ReportRepository(db).findById(id);
     const ok = await new ReportRepository(db).resolve(id, body.status, typeof body.resolution === 'string' ? body.resolution : '');
     if (!ok) throw new ValidationError('Report not found or already closed');
+    if (report !== null) {
+      const { applyReportOutcome } = await import('../modules/fairplay/outcomes.js');
+      void applyReportOutcome(report, body.status);
+    }
     await audit(me.id, 'admin.reports.resolve', id, { status: body.status });
     return { ok: true };
+  });
+
+  /** @openapi POST /api/v1/admin/reports/:id/ai-review — on-demand AI triage (advisory). */
+  app.post('/api/v1/admin/reports/:id/ai-review', async (req) => {
+    const me = await requireRole(req, 'moderator');
+    const { id } = req.params as { id: string };
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ReportRepository } = await import('../database/mongodb/repositories/social.repository.js');
+    const { activeProvider } = await import('../modules/ai/provider.js');
+    const { triageReport } = await import('../modules/ai/complete.js');
+    const db = await getMongoDb();
+    const report = await new ReportRepository(db).findById(id);
+    if (report === null) throw new ValidationError('Report not found');
+    const provider = activeProvider();
+    if (provider === null) return { available: false as const, message: 'No AI provider configured.' };
+    const result = await triageReport(me.id, provider.id, { reason: report.reason, targetType: report.targetType });
+    await audit(me.id, 'admin.reports.ai-review', id, {});
+    if (!result.ok) return { available: false as const, message: result.error };
+    return { available: true as const, provider: result.provider, verdict: result.explanation };
   });
 
   /** @openapi GET /api/v1/admin/tournaments — all tournaments, newest first. */

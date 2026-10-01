@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api.js';
 import { Avatar, Badge, Card, DivisionBadge, EmptyState, ErrorBox, Spinner, Tabs } from '../../components/ui/primitives.js';
 
-const MODES = ['bullet', 'blitz', 'rapid', 'casual'] as const;
+const MODES = ['bullet', 'blitz', 'rapid', 'classic', 'casual'] as const;
 
 export default function LeaderboardPage() {
   const [mode, setMode] = useState<(typeof MODES)[number]>('blitz');

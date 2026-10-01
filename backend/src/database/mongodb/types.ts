@@ -17,7 +17,8 @@ export interface UserDoc {
   status: UserStatus;
   /** Ephemeral guest account: casual-only, no ranked ratings. */
   guest: boolean;
-  /** Previous guest username, kept for audit when converted to a full account. */
+  /** Email ownership confirmed via the verify flow (guests: false). */
+  emailVerified: boolean;  /** Previous guest username, kept for audit when converted to a full account. */
   convertedFromGuestId?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -96,6 +97,8 @@ export interface GameDoc {
   variant?: 'duel' | 'multi';
   /** Winner-first seat order for multi games. */
   placement?: number[];
+  /** Who may spectate / open replays. Defaults to public on old docs. */
+  visibility?: 'public' | 'friends' | 'unlisted' | 'private';
   createdAt: Date;
   startedAt?: Date;
   finishedAt?: Date;
@@ -144,6 +147,12 @@ export interface TournamentDoc {
   champion?: string | null;
   startAt?: Date;
   endAt?: Date;
+  /** Recurrence for daily/weekly series; none = one-off. */
+  recurrence?: 'none' | 'daily' | 'weekly';
+  /** When the next edition should be spawned (set on FINISHED recurring docs). */
+  nextRunAt?: Date;
+  /** Edition counter, incremented per spawned series entry. */
+  edition?: number;
   createdAt: Date;
 }
 

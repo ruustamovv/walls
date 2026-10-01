@@ -17,9 +17,9 @@
  * `import ... from '@nexus/engine'` (add it to backend dependencies).
  * Both resolve to the same pure functions (createGame/validateMove/applyMove).
  *
- * Storage: in-memory Map (dev/test). TODO(mongo): persist to
- * `games` / `game_moves` / `game_events` collections via GameRepository.
- * Clock: server-authoritative placeholder — remaining time is computed from
+ * Storage: in-memory Map (dev/test) journaled to Mongo via
+ * modules/games/persistence.ts (game docs, append-only moves, exactly-once
+ * finish). Clock: server-authoritative — remaining time is computed from
  * server timestamps only; client clocks are never trusted.
  */
 import {
@@ -45,6 +45,8 @@ export interface ClockState {
   incrementMs: number;
 }
 
+export type GameVisibility = 'public' | 'friends' | 'unlisted' | 'private';
+
 export interface GameRecord {
   id: string;
   state: GameState;
@@ -53,6 +55,8 @@ export interface GameRecord {
   timeControlId: string;
   /** Queue mode the game was created from (ranked/casual/...). */
   mode: string;
+  /** Who may spectate / open replays: public, friends, unlisted (link), private (players). */
+  visibility: GameVisibility;
   /** Full action history for replays / review / what-if. */
   actions: Action[];
   /** Winning seat once finished (timeout awards the side with time left). */
@@ -62,6 +66,8 @@ export interface GameRecord {
   drawOfferBy: 0 | 1 | null;
   /** True once the finish side-effects (ratings/replay) have been settled. */
   settled: boolean;
+  /** Client action id of the most recently applied intent (echo for dedupe). */
+  lastActionId: string | null;
   clock: ClockState;
   createdAt: number;
   updatedAt: number;
@@ -80,6 +86,8 @@ function toAction(input: { type: 'move'; to: { r: number; c: number } } | { type
 
 export class GamesService {
   private readonly games = new Map<string, GameRecord>();
+  /** Recently seen client action ids per game (bounded) for dedupe. */
+  private readonly seenActionIds = new Map<string, string[]>();
 
   count(): number {
     return this.games.size;
@@ -100,6 +108,7 @@ export class GamesService {
     timeControl?: string;
     opponentId?: string;
     mode?: string;
+    visibility?: GameVisibility;
   }): GameRecord {
     const boardSize = input.boardSize ?? appConfig.walls.defaultBoardSize;
     const wallsPerPlayer = input.wallsPerPlayer ?? appConfig.walls.defaultPerPlayer;
@@ -121,11 +130,13 @@ export class GamesService {
       playerIds: [input.creatorId, input.opponentId ?? null],
       timeControlId: tc.id,
       mode: input.mode ?? 'ranked',
+      visibility: input.visibility ?? 'public',
       actions: [],
       winnerSeat: null,
       finishReason: null,
       drawOfferBy: null,
       settled: false,
+      lastActionId: null,
       clock: {
         remainingMs: [tc.baseSec * 1000, tc.baseSec * 1000],
         lastTickAt: now,
@@ -167,11 +178,30 @@ export class GamesService {
   /**
    * Apply a pawn move or wall placement.
    * Turn ownership is enforced server-side from playerIds + state.turn.
+   * Idempotency (RTG-003): when `opts.actionId` was already applied to this
+   * game, the record is returned unchanged (safe to rebroadcast). When
+   * `opts.baseMoveNumber` is present but stale, the intent is rejected so
+   * the client resyncs instead of acting on an old board.
    */
-  play(gameId: string, userId: string, input: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } }): GameRecord {
+  play(
+    gameId: string,
+    userId: string,
+    input: { type: 'move'; to: { r: number; c: number } } | { type: 'wall'; wall: { r: number; c: number; orientation: 'h' | 'v' } },
+    opts: { actionId?: string; baseMoveNumber?: number } = {},
+  ): GameRecord {
     const g = this.get(gameId);
     if (g.status !== 'active' && g.status !== 'waiting') {
       throw new ValidationError('Game is not playable');
+    }
+    if (opts.actionId !== undefined && (this.seenActionIds.get(gameId) ?? []).includes(opts.actionId)) {
+      // Dedupe runs before seat/turn checks on purpose: a client retrying
+      // its own applied intent (broadcast lost) must get the current record,
+      // not a "not your turn" error. Ids are unguessable UUIDs; the result
+      // exposes only public snapshot data.
+      return g;
+    }
+    if (opts.baseMoveNumber !== undefined && opts.baseMoveNumber !== g.actions.length) {
+      throw new ValidationError('Stale action — resync and retry');
     }
     const seat = g.playerIds[0] === userId ? 0 : g.playerIds[1] === userId ? 1 : -1;
     if (seat === -1) throw new ForbiddenError('You are not a player of this game');
@@ -188,6 +218,12 @@ export class GamesService {
     const result = applyMove(g.state, action);
     g.state = result.state;
     g.actions.push(action);
+    if (opts.actionId !== undefined) {
+      const seen = this.seenActionIds.get(gameId) ?? [];
+      seen.push(opts.actionId);
+      this.seenActionIds.set(gameId, seen.slice(-50));
+      g.lastActionId = opts.actionId;
+    }
     // Fischer increment to the mover, server-side only.
     g.clock.remainingMs[mover] += g.clock.incrementMs;
     g.clock.lastTickAt = Date.now();
@@ -286,6 +322,9 @@ export class GamesService {
     finishReason: FinishReason;
     drawOfferBy: 0 | 1 | null;
     moveCount: number;
+    /** Echo of the most recently applied client action id (idempotency). */
+    lastActionId: string | null;
+    visibility: GameVisibility;
     timeControlId: string;
     mode: string;
     createdAt: number;
@@ -304,6 +343,8 @@ export class GamesService {
       finishReason: g.finishReason,
       drawOfferBy: g.drawOfferBy,
       moveCount: g.actions.length,
+      lastActionId: g.lastActionId,
+      visibility: g.visibility,
       timeControlId: g.timeControlId,
       mode: g.mode,
       createdAt: g.createdAt,

@@ -20,18 +20,20 @@ export interface UserRecord {
   role: 'user' | 'moderator' | 'admin' | 'owner';
   /** Ephemeral guest: casual-only, excluded from ranked settlement. */
   guest: boolean;
+  /** Email ownership confirmed (always false for guests). */
+  emailVerified: boolean;
   createdAt: number;
 }
 
 export interface AuthResult {
-  user: Pick<UserRecord, 'id' | 'email' | 'username' | 'role' | 'guest'>;
+  user: Pick<UserRecord, 'id' | 'email' | 'username' | 'role' | 'guest' | 'emailVerified'>;
   session: SessionRecord;
   /** Suggested rate-limit bucket for the route layer. */
   rateLimitKey: string;
 }
 
 function publicUser(user: UserRecord): AuthResult['user'] {
-  return { id: user.id, email: user.email, username: user.username, role: user.role, guest: user.guest };
+  return { id: user.id, email: user.email, username: user.username, role: user.role, guest: user.guest, emailVerified: user.emailVerified };
 }
 
 export class AuthService {

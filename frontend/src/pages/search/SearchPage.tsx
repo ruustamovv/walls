@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../lib/api.js';
+import { toast } from '../../stores/toasts.js';
 import { Avatar, Button, Card, Spinner, TextInput } from '../../components/ui/primitives.js';
 import { useSession } from '../../stores/session.js';
 
@@ -29,8 +30,10 @@ export default function SearchPage() {
     try {
       await api.challenge(username, '3+1', 'ranked');
       setSent((s) => ({ ...s, [username]: 'Sent!' }));
+      toast('good', `Challenge sent to ${username}`);
     } catch (err) {
       setSent((s) => ({ ...s, [username]: err instanceof Error ? err.message : 'Failed' }));
+      toast('bad', err instanceof Error ? err.message : 'Challenge failed');
     }
   }
 

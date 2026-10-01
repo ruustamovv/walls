@@ -1,0 +1,342 @@
+{
+ "generatedAt": "2026-10-01T11:59:42.322Z",
+ "board": "9x9",
+ "games": 171,
+ "bots": [
+  {
+   "id": "mythic",
+   "win": 88.88888888888889,
+   "games": 18,
+   "plies": 71.88888888888889,
+   "walls": 9.055555555555555
+  },
+  {
+   "id": "fortress",
+   "win": 77.77777777777779,
+   "games": 18,
+   "plies": 72.88888888888889,
+   "walls": 10
+  },
+  {
+   "id": "duelist",
+   "win": 72.22222222222221,
+   "games": 18,
+   "plies": 66,
+   "walls": 9.5
+  },
+  {
+   "id": "apex",
+   "win": 66.66666666666666,
+   "games": 18,
+   "plies": 72.16666666666667,
+   "walls": 8.666666666666666
+  },
+  {
+   "id": "apprentice",
+   "win": 61.111111111111114,
+   "games": 18,
+   "plies": 69.55555555555556,
+   "walls": 9.833333333333334
+  },
+  {
+   "id": "speedster",
+   "win": 55.55555555555556,
+   "games": 18,
+   "plies": 71.61111111111111,
+   "walls": 9.444444444444445
+  },
+  {
+   "id": "grandmaster",
+   "win": 55.55555555555556,
+   "games": 18,
+   "plies": 66.33333333333333,
+   "walls": 8.88888888888889
+  },
+  {
+   "id": "warlord",
+   "win": 55.55555555555556,
+   "games": 18,
+   "plies": 65.61111111111111,
+   "walls": 9.333333333333334
+  },
+  {
+   "id": "rookie",
+   "win": 50,
+   "games": 18,
+   "plies": 76.5,
+   "walls": 10
+  },
+  {
+   "id": "tactician",
+   "win": 50,
+   "games": 18,
+   "plies": 55.388888888888886,
+   "walls": 6.333333333333333
+  },
+  {
+   "id": "elite",
+   "win": 50,
+   "games": 18,
+   "plies": 68.83333333333333,
+   "walls": 9.38888888888889
+  },
+  {
+   "id": "overmind",
+   "win": 50,
+   "games": 18,
+   "plies": 67.83333333333333,
+   "walls": 7.611111111111111
+  },
+  {
+   "id": "architect",
+   "win": 44.44444444444444,
+   "games": 18,
+   "plies": 78.05555555555556,
+   "walls": 10
+  },
+  {
+   "id": "assassin",
+   "win": 44.44444444444444,
+   "games": 18,
+   "plies": 75.22222222222223,
+   "walls": 10
+  },
+  {
+   "id": "endgame",
+   "win": 44.44444444444444,
+   "games": 18,
+   "plies": 63.888888888888886,
+   "walls": 8.833333333333334
+  },
+  {
+   "id": "calculator",
+   "win": 38.88888888888889,
+   "games": 18,
+   "plies": 67.83333333333333,
+   "walls": 9.333333333333334
+  },
+  {
+   "id": "runner",
+   "win": 22.22222222222222,
+   "games": 18,
+   "plies": 47.27777777777778,
+   "walls": 4.388888888888889
+  },
+  {
+   "id": "legend",
+   "win": 16.666666666666664,
+   "games": 18,
+   "plies": 71.66666666666667,
+   "walls": 9.666666666666666
+  },
+  {
+   "id": "chaos",
+   "win": 5.555555555555555,
+   "games": 18,
+   "plies": 63.55555555555556,
+   "walls": 10
+  }
+ ],
+ "openings": [
+  {
+   "line": "m1,4 m7,4 m2,4 m6,4 m3,4 m5,4",
+   "games": 43,
+   "whiteWinPct": 37
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 m2,3 wh2,2",
+   "games": 9,
+   "whiteWinPct": 78
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 m3,4 wh7,3",
+   "games": 7,
+   "whiteWinPct": 29
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,3 m2,5 wh2,5",
+   "games": 6,
+   "whiteWinPct": 67
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 wh1,4 wh0,3 wv1,3",
+   "games": 5,
+   "whiteWinPct": 80
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 m3,4 wh7,2",
+   "games": 5,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 m6,4 wh0,3 m6,5",
+   "games": 4,
+   "whiteWinPct": 25
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,3 m3,4 wh7,4",
+   "games": 4,
+   "whiteWinPct": 50
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 wh1,4 wh0,2 wv0,3",
+   "games": 4,
+   "whiteWinPct": 75
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 wh1,4 m1,3 wh1,2",
+   "games": 3,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,3 m3,4 wh7,5",
+   "games": 3,
+   "whiteWinPct": 67
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,3 wh6,3 wh7,4",
+   "games": 3,
+   "whiteWinPct": 33
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 wh1,4 wh0,2 wv1,3",
+   "games": 3,
+   "whiteWinPct": 67
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 wh6,4 wh7,2",
+   "games": 3,
+   "whiteWinPct": 67
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 wh6,4 wh7,3",
+   "games": 2,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 m7,5 wh5,5 wh1,3",
+   "games": 2,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 m6,4 wh0,2 m6,5",
+   "games": 2,
+   "whiteWinPct": 50
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 m6,4 wh0,4 m5,4",
+   "games": 2,
+   "whiteWinPct": 50
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 m6,4 wh0,2 m5,4",
+   "games": 2,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 m6,4 wh0,3 m5,4",
+   "games": 2,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 m6,4 wh0,4 m5,4",
+   "games": 2,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 m7,3 wh5,2 wh2,4",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 wh0,4 wh7,2",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m0,5 wh2,5 wh2,3 wh7,6 m1,5 m7,4",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m0,5 m7,4 m1,5 m6,4 m2,5 m5,4",
+   "games": 1,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 m6,4 wh0,4 m6,3",
+   "games": 1,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m0,5 m7,4 wh1,3 wh7,5 m1,5 m6,4",
+   "games": 1,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,3 wh0,4 wh2,4",
+   "games": 1,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 wh1,3 m1,3 wv1,2",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 m6,4 m2,4 m5,4",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 m6,4 wh0,5 m5,4",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,3 m2,5 wh6,5",
+   "games": 1,
+   "whiteWinPct": 0
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 m2,3 wh4,2",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,3 m2,5 wh3,5",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 wh0,4 wh1,4 wh0,2 wh7,2",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 m6,4 wh0,4 m6,3",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 wh3,3 m2,4 wv2,4",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 wh0,1 wh0,3 wh1,3 wh0,5 m7,4",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 m2,4 wh7,4 wh0,3 m7,5",
+   "games": 1,
+   "whiteWinPct": 100
+  },
+  {
+   "line": "m1,4 m7,4 wh0,3 wh1,3 m1,5 wh1,5",
+   "games": 1,
+   "whiteWinPct": 0
+  }
+ ]
+}

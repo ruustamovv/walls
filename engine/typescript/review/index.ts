@@ -3,6 +3,7 @@ export {
   mobilityOf,
   parseBestAction,
   reviewGame,
+  REVIEW_THRESHOLDS,
   type GameReview,
   type MoveClass,
   type ReviewedMove,

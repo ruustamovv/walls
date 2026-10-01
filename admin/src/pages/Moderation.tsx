@@ -130,6 +130,8 @@ function Reports() {
   const [status, setStatus] = useState('OPEN');
   const [rows, setRows] = useState<Awaited<ReturnType<typeof api.reports>>['reports']>([]);
   const [note, setNote] = useState<Record<string, string>>({});
+  const [verdict, setVerdict] = useState<Record<string, string>>({});
+  const [aiBusy, setAiBusy] = useState<string | null>(null);
   const load = useCallback(() => {
     api.reports(status).then((r) => setRows(r.reports)).catch(() => setRows([]));
   }, [status]);
@@ -162,6 +164,11 @@ function Reports() {
                 <span style={{ color: 'var(--muted)', fontSize: 12 }}>{new Date(r.createdAt).toLocaleString()}</span>
               </div>
               <p style={{ margin: '6px 0' }}>{r.reason}</p>
+              {verdict[r._id] !== undefined && (
+                <p style={{ fontSize: 13, background: 'var(--surface-2)', borderRadius: 8, padding: '8px 10px' }}>
+                  AI triage: {verdict[r._id]}
+                </p>
+              )}
               {r.status === 'OPEN' ? (
                 <div style={{ display: 'flex', gap: 8 }}>
                   <Field label="">
@@ -172,7 +179,16 @@ function Reports() {
                       aria-label="resolution note"
                     />
                   </Field>
-                  <div style={{ alignSelf: 'end', paddingBottom: 12, display: 'flex', gap: 8 }}>
+                  <div style={{ alignSelf: 'end', paddingBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <Button kind="ghost" disabled={aiBusy !== null} onClick={() => {
+                      setAiBusy(r._id);
+                      void api.reportAiReview(r._id)
+                        .then((v) => setVerdict((m) => ({ ...m, [r._id]: v.available && v.verdict !== undefined ? v.verdict : (v.message ?? 'unavailable') })))
+                        .catch((e: unknown) => setVerdict((m) => ({ ...m, [r._id]: e instanceof Error ? e.message : 'failed' })))
+                        .finally(() => setAiBusy(null));
+                    }}>
+                      {aiBusy === r._id ? 'Asking…' : 'Ask AI'}
+                    </Button>
                     <Button onClick={() => { void api.reportResolve(r._id, 'RESOLVED', note[r._id] ?? '').then(load); }}>Resolve</Button>
                     <Button kind="ghost" onClick={() => { void api.reportResolve(r._id, 'DISMISSED', note[r._id] ?? '').then(load); }}>Dismiss</Button>
                   </div>

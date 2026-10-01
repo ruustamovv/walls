@@ -6,10 +6,62 @@ import { api } from '../lib/api.js';
 import { useSession } from '../stores/session.js';
 import { Badge, Button, Card, Empty, Field, H, Input, Spinner } from '../components/ui.js';
 
-export function System({ tab }: { tab: 'ai' | 'flags' | 'audit' }) {
+export function System({ tab }: { tab: 'ai' | 'flags' | 'audit' | 'billing' }) {
   if (tab === 'ai') return <AI />;
   if (tab === 'flags') return <Flags />;
+  if (tab === 'billing') return <Billing />;
   return <Audit />;
+}
+
+function Billing() {
+  const [data, setData] = useState<Awaited<ReturnType<typeof api.billing>> | null>(null);
+  useEffect(() => {
+    let live = true;
+    api.billing().then((r) => { if (live) setData(r); }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <Card>
+        <H>Payments</H>
+        {data === null ? <Spinner /> : (
+          <>
+            <p style={{ margin: '0 0 8px', fontSize: 15 }}>
+              Provider <strong className="font-mono">{data.provider}</strong>{' '}
+              <Badge tone={data.checkoutReady ? 'good' : 'neutral'}>{data.checkoutReady ? 'checkout live' : 'disabled'}</Badge>
+            </p>
+            <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>{data.reason}</p>
+          </>
+        )}
+      </Card>
+      <Card>
+        <H>Entitlement grants</H>
+        {data === null ? <Spinner /> : data.grantsByEntitlement.length === 0 ? (
+          <Empty title="No grants yet" body="Admin grants and Stripe bundles land here." />
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
+            {data.grantsByEntitlement.map((g) => (
+              <li key={g.entitlement} style={{ fontSize: 14 }}><code>{g.entitlement}</code> × <strong className="font-mono">{g.count}</strong></li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card>
+        <H>Recent Stripe events</H>
+        {data === null ? <Spinner /> : data.recentEvents.length === 0 ? (
+          <Empty title="No events" body="Verified webhooks appear here newest-first." />
+        ) : (
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 6 }}>
+            {data.recentEvents.map((e) => (
+              <li key={e.eventId} style={{ fontSize: 13 }}>
+                <code>{e.type}</code> <span style={{ color: 'var(--muted)' }}>{e.eventId.slice(0, 16)} · {String(e.userId).slice(0, 12)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
 }
 
 function AI() {

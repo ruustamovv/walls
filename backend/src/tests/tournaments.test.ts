@@ -174,3 +174,40 @@ describe('tournaments: round-robin flow', () => {
     assert.equal(done?.tournament.champion, o);
   });
 });
+
+describe('tournaments: recurrence', () => {
+  it('daily series spawns its next edition on sweep', async () => {
+    const { sweepRecurrence } = await import('../modules/tournaments/service.js');
+    const { TournamentRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const [o, p2] = await makeUsers(2);
+    const t = await createTournament(o as string, { title: 'Daily Cup', format: 'single-elim', recurrence: 'daily' });
+    await joinTournament(t._id, p2 as string);
+    await openTournament(t._id);
+    await startTournament(t._id);
+    let detail = await tournamentDetail(t._id);
+    const fin = detail?.rounds[0]?.matches ?? [];
+    assert.equal(fin.length, 1);
+    await reportResult(t._id, 1, 0, (fin[0]?.a ?? '') as string, o as string);
+    detail = await tournamentDetail(t._id);
+    assert.equal(detail?.tournament.status, 'FINISHED');
+
+    // Fast-forward past the next run and sweep twice (idempotent-ish).
+    const db = await getMongoDb();
+    const { COLLECTIONS } = await import('../database/mongodb/collections.js');
+    const { tryToObjectId } = await import('../database/mongodb/ids.js');
+    const oid = tryToObjectId(t._id);
+    assert.ok(oid !== null);
+    await db.collection(COLLECTIONS.tournaments).updateOne({ _id: oid }, { $set: { nextRunAt: new Date(Date.now() - 1000) } });
+    const spawned = await sweepRecurrence(Date.now());
+    assert.equal(spawned.length, 1);
+    const repo = new TournamentRepository(db);
+    const next = await repo.findById(spawned[0] as string);
+    assert.ok(next !== null);
+    assert.equal(next.status, 'DRAFT');
+    assert.equal(next.recurrence, 'daily');
+    assert.match(next.title, /Daily Cup #2/);
+    // Second sweep finds nothing due (advance-first).
+    assert.deepEqual(await sweepRecurrence(Date.now()), []);
+  });
+});

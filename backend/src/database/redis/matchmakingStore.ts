@@ -24,6 +24,8 @@ export class RedisQueueStore implements QueueStore {
     await redis.hset(tkey, {
       queue: qkey, mode: ticket.mode, timeControl: ticket.timeControl,
       rating: String(ticket.rating), joinedAt: String(ticket.joinedAt),
+      ...(ticket.behavior !== undefined ? { behavior: String(ticket.behavior) } : {}),
+      ...(ticket.region !== undefined ? { region: ticket.region } : {}),
     });
     await redis.expire(tkey, 600);
     await redis.zadd(qkey, ticket.joinedAt, ticket.userId);
@@ -59,6 +61,8 @@ export class RedisQueueStore implements QueueStore {
       out.push({
         userId, mode: h['mode'] ?? mode, timeControl: h['timeControl'] ?? timeControl,
         rating: Number(h['rating'] ?? 1500), joinedAt: Number(h['joinedAt'] ?? Date.now()),
+        ...(h['behavior'] !== undefined ? { behavior: Number(h['behavior']) } : {}),
+        ...(h['region'] !== undefined ? { region: h['region'] } : {}),
       });
     }
     return out;

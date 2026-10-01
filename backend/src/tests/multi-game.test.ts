@@ -201,8 +201,7 @@ describe('online party games', () => {
     assert.ok((replay.actions?.length ?? 0) >= 2);
   });
 
-  it('private party link seats players; stale invites expire', async () => {
-    const host = await register('partyhost');
+  it('private party link seats players; stale invites expire', async () => {    const host = await register('partyhost');
     const created = await post(host, '/api/v1/multi/games', { players: 3, timeControl: '3+0' });
     assert.equal(created.status, 200);
     const gid = String(created.body['id']);
@@ -231,5 +230,58 @@ describe('online party games', () => {
     const wg = svc.create({ creatorId: 'x', players: 2, timeControl: '3+0' });
     wg.createdAt = Date.now() - 25 * 60 * 60 * 1000;
     assert.throws(() => svc.join(wg.id, 'y'), /expired/i);
+  });
+
+  it('5P quick-match fills and starts on 19x19', async () => {
+    const jars = [];
+    for (const name of ['five_a', 'five_b', 'five_c', 'five_d', 'five_e']) {
+      jars.push(await register(name));
+    }
+    let gameId = '';
+    for (let i = 0; i < jars.length; i++) {
+      const res = await post(jars[i] as Jar, '/api/v1/matchmaking/multi/join', { players: 5, timeControl: '3+0' });
+      assert.equal(res.status, 200);
+      if (i < jars.length - 1) {
+        assert.equal(res.body['status'], 'queued');
+      } else {
+        assert.equal(res.body['status'], 'matched');
+        gameId = String(res.body['gameId']);
+      }
+    }
+    const snap = await api(jars[0] as Jar, `/api/v1/multi/games/${gameId}`);
+    assert.equal(snap.status, 200);
+    assert.equal(snap.body['players'], 5);
+    assert.equal((snap.body['seats'] as unknown[]).length, 5);
+    assert.equal((snap.body['state'] as Record<string, unknown>)['size'], 19);
+    assert.equal(snap.body['status'], 'active');
+    // Sixth player cannot squeeze in.
+    const extra = await register('five_extra');
+    const full = await post(extra, '/api/v1/matchmaking/multi/join', { players: 5, timeControl: '3+0' });
+    assert.equal(full.status, 200);
+    assert.equal(full.body['status'], 'queued');
+  });
+
+  it('6P quick-match fills and starts on 21x21', async () => {
+    const jars = [];
+    for (const name of ['six_a', 'six_b', 'six_c', 'six_d', 'six_e', 'six_f']) {
+      jars.push(await register(name));
+    }
+    let gameId = '';
+    for (let i = 0; i < jars.length; i++) {
+      const res = await post(jars[i] as Jar, '/api/v1/matchmaking/multi/join', { players: 6, timeControl: '3+0' });
+      assert.equal(res.status, 200);
+      if (i < jars.length - 1) {
+        assert.equal(res.body['status'], 'queued');
+      } else {
+        assert.equal(res.body['status'], 'matched');
+        gameId = String(res.body['gameId']);
+      }
+    }
+    const snap = await api(jars[0] as Jar, `/api/v1/multi/games/${gameId}`);
+    assert.equal(snap.status, 200);
+    assert.equal(snap.body['players'], 6);
+    assert.equal((snap.body['seats'] as unknown[]).length, 6);
+    assert.equal((snap.body['state'] as Record<string, unknown>)['size'], 21);
+    assert.equal(snap.body['status'], 'active');
   });
 });

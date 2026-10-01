@@ -46,11 +46,32 @@ export const WallActionSchema = z.object({
 export const GameActionSchema = z.discriminatedUnion('type', [MoveActionSchema, WallActionSchema]);
 export type GameActionInput = z.infer<typeof GameActionSchema>;
 
+/**
+ * Idempotent intent envelope (RTG-003): the engine action plus transport
+ * metadata. Raw actions (older clients/tests) are wrapped automatically.
+ */
+export const IntentEnvelopeSchema = z.object({
+  action: GameActionSchema,
+  actionId: z.string().min(1).max(64).optional(),
+  baseMoveNumber: z.number().int().min(0).optional(),
+});
+export type IntentEnvelopeInput = z.infer<typeof IntentEnvelopeSchema>;
+
+/** Accept a raw action or an envelope; always returns the envelope shape. */
+export function normalizeIntent(body: unknown): ReturnType<typeof IntentEnvelopeSchema.safeParse> {
+  const raw = body as Record<string, unknown> | null;
+  const wrapped = raw !== null && typeof raw === 'object' && 'action' in raw ? raw : { action: raw };
+  return IntentEnvelopeSchema.safeParse(wrapped);
+}
+
+export const GameVisibilitySchema = z.enum(['public', 'friends', 'unlisted', 'private']);
+
 export const CreateGameSchema = z.object({
   boardSize: BoardSizeSchema.default(9),
   wallsPerPlayer: z.number().int().min(0).max(20).default(10),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1']).default('3+0'),
+  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
   opponentId: z.string().min(1).max(64).optional(), // domain ID = hex string (see database/mongodb/ids.ts), never a raw ObjectId
+  visibility: GameVisibilitySchema.optional(),
   // NOTE: rating / clock fields from client are ignored server-side.
 });
 
@@ -59,7 +80,10 @@ export type CreateGameInput = z.infer<typeof CreateGameSchema>;
 // ── Matchmaking ──────────────────────────────────────
 export const MatchmakingJoinSchema = z.object({
   mode: z.enum(['blitz', 'rapid', 'casual', 'ranked']).default('ranked'),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1']).default('3+0'),
+  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
+  // Coarse client-declared locality (e.g. IANA timezone); same-region
+  // preference only, never a hard gate. Max 64 chars, free-form.
+  region: z.string().min(1).max(64).optional(),
   // Client MAY suggest rating for display, but server uses stored rating.
 });
 

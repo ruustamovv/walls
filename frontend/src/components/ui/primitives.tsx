@@ -127,7 +127,7 @@ function sigilHue(name: string): number {
 }
 
 /** Generated geometric avatar — deterministic per name, no assets. */
-export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
+export function Avatar({ name, size = 36, frame }: { name: string; size?: number; frame?: string }) {
   const hue = sigilHue(name);
   const initial = name.slice(0, 1).toUpperCase();
   return (
@@ -136,11 +136,24 @@ export function Avatar({ name, size = 36 }: { name: string; size?: number }) {
       background: `conic-gradient(from 40deg, hsl(${hue} 55% 45%), hsl(${(hue + 70) % 360} 60% 40%), hsl(${hue} 55% 45%))`,
       color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
       fontWeight: 800, fontSize: size * 0.45, fontFamily: 'var(--font-display)',
-      boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.25)',
+      boxShadow: frameToShadow(frame),
     }}>
       {initial}
     </span>
   );
+}
+
+const FRAME_SHADOWS: Record<string, string> = {
+  'frame-bronze': 'inset 0 0 0 2px #b45309, 0 0 10px rgba(180,83,9,.45)',
+  'frame-silver': 'inset 0 0 0 2px #9aa4b5, 0 0 10px rgba(154,164,180,.45)',
+  'frame-gold': 'inset 0 0 0 2px #d97706, 0 0 14px rgba(217,119,6,.55)',
+  'frame-diamond': 'inset 0 0 0 2px #38bdf8, 0 0 14px rgba(56,189,248,.55)',
+  'frame-apex': 'inset 0 0 0 2px #a78bfa, 0 0 16px rgba(167,139,250,.65)',
+};
+
+function frameToShadow(frame: string | undefined): string {
+  if (frame !== undefined && FRAME_SHADOWS[frame] !== undefined) return FRAME_SHADOWS[frame] as string;
+  return 'inset 0 0 0 2px rgba(255,255,255,.25)';
 }
 
 export function DivisionBadge({ rating }: { rating: number }) {
@@ -308,16 +321,16 @@ const MOVE_META: Record<string, { symbol: string; bg: string; fg: string; label:
   BRILLIANT: { symbol: '!!', bg: 'var(--brilliant)', fg: '#fff', label: 'Brilliant' },
   GREAT: { symbol: '!', bg: 'var(--great)', fg: '#fff', label: 'Great' },
   BEST: { symbol: '★', bg: 'var(--good)', fg: '#fff', label: 'Best' },
-  EXCELLENT: { symbol: '👍', bg: 'var(--good-soft)', fg: 'var(--good)', label: 'Excellent' },
+  EXCELLENT: { symbol: '+', bg: 'var(--good-soft)', fg: 'var(--good)', label: 'Excellent' },
   GOOD: { symbol: '✓', bg: 'var(--surface-2)', fg: 'var(--muted)', label: 'Good' },
-  BOOK: { symbol: '📖', bg: 'var(--surface-2)', fg: 'var(--muted)', label: 'Book' },
+  BOOK: { symbol: 'Bk', bg: 'var(--surface-2)', fg: 'var(--muted)', label: 'Book' },
   INACCURACY: { symbol: '?!', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Inaccuracy' },
   MISTAKE: { symbol: '?', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Mistake' },
   MISS: { symbol: '×', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Miss' },
   BLUNDER: { symbol: '??', bg: 'var(--bad)', fg: '#fff', label: 'Blunder' },
-  GREAT_WALL: { symbol: '🧱!', bg: 'var(--great)', fg: '#fff', label: 'Great wall' },
-  WALL_BLUNDER: { symbol: '🧱?', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Wall blunder' },
-  PATH_BLUNDER: { symbol: '↗?', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Path blunder' },
+  GREAT_WALL: { symbol: 'W!', bg: 'var(--great)', fg: '#fff', label: 'Great wall' },
+  WALL_BLUNDER: { symbol: 'W?', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Wall blunder' },
+  PATH_BLUNDER: { symbol: 'P?', bg: 'var(--bad-soft)', fg: 'var(--bad)', label: 'Path blunder' },
   TEMPO_LOSS: { symbol: '◷', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Tempo loss' },
   MISSED_CHOKE: { symbol: '◎', bg: 'var(--warn-soft)', fg: 'var(--warn)', label: 'Missed choke' },
   CLUTCH: { symbol: '♛', bg: 'var(--gold)', fg: '#fff', label: 'Clutch' },

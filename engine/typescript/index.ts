@@ -2,8 +2,10 @@
  * Public API of @nexus/engine. Import from here, not from internals.
  */
 export {
+  estimateMultiWinShare,
   winChanceCurve,
   winChanceFor,
+  type MultiWinShare,
 } from './eval/winChance.js';
 export {
   BOARD_PRESETS,
@@ -67,8 +69,10 @@ export {
   getBot,
   mulberry32,
   quip,
+  topCandidates,
   type BanterTrigger,
   type BotDef,
+  type CandidateAction,
   type EvalWeights,
   type ScoredAction,
   type SearchOptions,
@@ -78,6 +82,7 @@ export {
   mobilityOf,
   parseBestAction,
   reviewGame,
+  REVIEW_THRESHOLDS,
   type GameReview,
   type MoveClass,
   type ReviewedMove,
@@ -92,6 +97,7 @@ export {
   type AttemptVerdict,
   type DailyPuzzle,
 } from './puzzles/index.js';
+export { QUICK_CHAT, isQuickChat, type QuickChatMessage } from './chat/index.js';
 export {
   applyMultiMove,
   chooseMultiBotAction,
@@ -99,13 +105,18 @@ export {
   defaultSides,
   getMultiLegalMoves,
   getMultiLegalWalls,
+  gradeMultiAttempt,
   hashMultiState,
   isGoal,
   isMultiGameOver,
   MULTI_BOT_DEFAULT,
   MULTI_PRESETS,
+  MULTI_PUZZLE_NEED_GAIN,
   MULTI_RULES_VERSION,
+  multiPuzzleDaily,
+  presetForPlayers,
   replayMultiGame,
+  seededMultiPuzzle,
   serializeMultiState,
   shortestToSide,
   startFor,
@@ -113,10 +124,12 @@ export {
   validateMultiWall,
   type MultiAction,
   type MultiApplyResult,
+  type MultiAttemptVerdict,
   type MultiBotOpts,
   type MultiConfig,
   type MultiOrientation,
   type MultiPos,
+  type MultiPuzzle,
   type MultiRejectReason,
   type MultiState,
   type MultiValidation,

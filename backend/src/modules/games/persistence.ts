@@ -83,6 +83,7 @@ export async function persistGameCreated(g: GameRecord, ratingMode: string): Pro
       rulesVersion: g.state.rulesVersion,
       engineVersion: g.state.rulesVersion,
       players: players as [{ userId: string; seat: 0 | 1; usernameAtStart: string; ratingAtStart: number; clockMs: number }],
+      visibility: g.visibility,
     });
     docIdByEngineId.set(g.id, doc._id);
   } catch (err) {

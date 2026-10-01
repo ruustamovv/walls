@@ -29,6 +29,7 @@ export const CreateGameSchema = z.object({
   })).min(1).max(6),
   variant: z.enum(['duel', 'multi']).default('duel'),
   placement: z.array(z.number().int().min(0).max(5)).max(6).optional(),
+  visibility: z.enum(['public', 'friends', 'unlisted', 'private']).default('public'),
 });
 export type CreateGameInput = z.input<typeof CreateGameSchema>;
 

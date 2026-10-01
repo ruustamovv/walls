@@ -39,12 +39,15 @@ async function seedOrder(userIds: string[]): Promise<string[]> {
 
 export async function createTournament(ownerId: string, input: {
   title: string; format?: TournamentDoc['format']; timeControl?: string; mode?: string; rounds?: number; playersCap?: number;
-  durationMinutes?: number;
+  durationMinutes?: number; recurrence?: 'none' | 'daily' | 'weekly';
 }): Promise<TournamentDoc> {
   const title = input.title.trim().slice(0, 80);
   if (title.length < 3) throw new Error('title too short');
   if (input.format !== undefined && !['single-elim', 'round-robin', 'swiss', 'arena'].includes(input.format)) {
     throw new Error('unknown format');
+  }
+  if (input.recurrence !== undefined && !['none', 'daily', 'weekly'].includes(input.recurrence)) {
+    throw new Error('unknown recurrence');
   }
   const doc = await (await repo()).create({
     title,
@@ -57,6 +60,7 @@ export async function createTournament(ownerId: string, input: {
     ...(input.durationMinutes !== undefined && input.durationMinutes > 0
       ? { endAt: new Date(Date.now() + Math.min(input.durationMinutes, 24 * 60) * 60000) }
       : {}),
+    ...(input.recurrence !== undefined && input.recurrence !== 'none' ? { recurrence: input.recurrence } : {}),
   });
   await (await repo()).addPlayer(doc._id, ownerId);
   return doc;
@@ -272,7 +276,45 @@ export async function finishTournament(tournamentId: string, userId: string): Pr
   if (t.status !== 'LIVE') throw new Error('tournament is not live');
   const table = await standings(tournamentId);
   await r.setChampion(tournamentId, table[0]?.userId ?? null);
+  // Recurring series: schedule the next edition from now.
+  const finished = await r.findById(tournamentId);
+  if (finished !== null && (finished.recurrence === 'daily' || finished.recurrence === 'weekly')) {
+    const period = finished.recurrence === 'daily' ? 86_400_000 : 7 * 86_400_000;
+    await r.scheduleNext(tournamentId, new Date(Date.now() + period));
+  }
   arenaPools.delete(tournamentId);
+}
+
+/**
+ * Recurrence sweep (TRN-007): spawn the next edition of every finished
+ * recurring tournament whose time has come. Called hourly by the server;
+ * safe to run concurrently (edition title check keeps it idempotent-ish,
+ * duplicates collapse on the next sweep via nextRunAt advance-first).
+ */
+export async function sweepRecurrence(now: number = Date.now()): Promise<string[]> {
+  const r = await repo();
+  const spawned: string[] = [];
+  const due = await r.dueRecurrence(new Date(now));
+  for (const t of due) {
+    const period = t.recurrence === 'weekly' ? 7 * 86_400_000 : 86_400_000;
+    // Advance FIRST so a crash cannot respawn endlessly.
+    await r.scheduleNext(t._id, new Date(now + period));
+    const edition = (t.edition ?? 1) + 1;
+    const base = t.title.replace(/\s+#\d+$/, '');
+    const next = await r.create({
+      title: `${base} #${edition}`,
+      mode: t.mode,
+      timeControl: t.timeControl,
+      format: t.format,
+      rounds: t.rounds,
+      playersCap: t.playersCap,
+      ownerId: t.ownerId,
+      recurrence: t.recurrence,
+      edition,
+    });
+    spawned.push(next._id);
+  }
+  return spawned;
 }
 
 export async function tournamentDetail(tournamentId: string): Promise<{
