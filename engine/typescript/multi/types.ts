@@ -40,7 +40,40 @@ export interface MultiConfig {
    * Default false — first goal wins, exactly as before.
    */
   continueAfterWin?: boolean;
+  /**
+   * Opt-in team rules (MLT-009): seats are split into two teams and the
+   * FIRST seat to reach its goal wins for its whole team. Requires an even
+   * seat count (2 or 4). Default false — free-for-all, exactly as before.
+   * Mutually exclusive with continueAfterWin (a race has one finisher).
+   */
+  teamMode?: boolean;
+  /**
+   * Opt-in fog of war (MLT-009): each seat only sees walls adjacent to its own
+   * pawn. The SERVER must project snapshots per seat (see multi/fog.ts) — a
+   * shared broadcast would leak the whole board and defeat the mode.
+   * Default false — full visibility, exactly as before.
+   */
+  fog?: boolean;
+  /**
+   * Opt-in chaos (MLT-009): wall budgets rotate every CHAOS_ROTATION_PLIES
+   * moves so no seat can bank a wall arsenal. Requires a `seed` (or an explicit
+   * seed argument) because the rotation must be replayable from the action log
+   * alone — an unseeded random rotation could not be reconstructed by
+   * `replayMultiGame`, which would break replay determinism.
+   */
+  chaos?: boolean;
+  /**
+   * Opt-in siege (MLT-009): asymmetric wall economy. Seat 0 (the attacker) gets
+   * SIEGE_WALL_BONUS extra walls and a one-row head start; everyone else plays
+   * the normal economy. Casual-only, never in ranked play.
+   */
+  siege?: boolean;
 }
+
+/** Chaos: how often the wall budget rotates (in plies). */
+export const CHAOS_ROTATION_PLIES = 6;
+/** Siege: extra walls for the attacking seat. */
+export const SIEGE_WALL_BONUS = 4;
 
 export const MULTI_RULES_VERSION = '1.0.0-m1';
 
@@ -57,6 +90,12 @@ export const MULTI_PRESETS = {
   party5: { players: 5, size: 19, wallsPerPlayer: 8 },
   /** Six-player free-for-all: grand 21x21, shared S+N edges. */
   party6: { players: 6, size: 21, wallsPerPlayer: 8 },
+  /**
+   * Team duel 2v2 (MLT-009): seats 0+2 vs 1+3. First seat home wins for its
+   * team. The sides layout is identical to party4 so only the team flag
+   * differs — an apples-to-apples team game.
+   */
+  team4: { players: 4, size: 9, wallsPerPlayer: 5 },
 } as const;
 
 /**
@@ -96,6 +135,18 @@ export interface MultiState {
   eliminated: number[];
   /** Winner-first seat order once isOver. */
   placement: number[];
+  /** Team index per seat (MLT-009). Null when free-for-all. */
+  teamOf: number[] | null;
+  /** Winning team index in team mode, else null. */
+  winningTeam: number | null;
+  /** Fog of war active (MLT-009): snapshots must be projected per seat. */
+  fog: boolean;
+  /** Chaos mode active (MLT-009): wall budget rotates on a fixed cadence. */
+  chaos: boolean;
+  /** Siege mode active (MLT-009): seat 0 has extra walls and a head start. */
+  siege: boolean;
+  /** Siege: the row seat 0's pawn starts on instead of row 0. */
+  siegeHeadStart: number;
 }
 
 export type MultiRejectReason =
@@ -105,6 +156,7 @@ export type MultiRejectReason =
   | 'no_walls_remaining'
   | 'duplicate_wall'
   | 'crossing_wall'
+  | 'overlapping_wall'
   | 'blocks_path'
   | 'invalid_orientation'
   | 'invalid_action'

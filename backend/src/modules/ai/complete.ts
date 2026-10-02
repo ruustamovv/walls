@@ -424,3 +424,114 @@ export async function triageReport(
   const canned = 'AI triage unavailable — no provider configured. Review the quoted text manually.';
   return withFallback(userId, provider, 'moderation', system, userPrompt, canned);
 }
+
+/**
+ * Architect parameter proposal (AIC-008). The model may ONLY choose board
+ * parameters — never walls, never legality claims. Output is parsed as strict
+ * JSON and range-checked before it can reach the engine validation gate.
+ */
+export async function proposeArchitectSpec(
+  userId: string,
+  provider: AIProviderId,
+  facts: {
+    prompt: string;
+    difficulty: string;
+    chokes: number;
+    size: number;
+    wallsPerPlayer: number;
+    theme: string;
+  },
+): Promise<{ ok: true; provider: CompatId; spec: { size?: unknown; wallsPerPlayer?: unknown; theme?: unknown } | null } | { ok: false; provider: AIProviderId; error: string }> {
+  if (!isCompat(provider)) return { ok: false, provider, error: 'provider not supported' };
+  const system = [
+    'You configure a wall-and-pawn board generator. Reply with ONLY a JSON object, no prose.',
+    'Schema: {"size": integer 7-19, "wallsPerPlayer": integer 4-30, "theme": one of stone|maze|atrium|ridge|weave|pillar}.',
+    'You must NOT describe, place, or reason about individual walls. Board legality is decided by an engine, not by you.',
+  ].join(' ');
+  const userPrompt = [
+    `Request: ${facts.prompt}`,
+    `Parsed difficulty: ${facts.difficulty}; requested choke points: ${facts.chokes}.`,
+    `Current defaults: size ${facts.size}, wallsPerPlayer ${facts.wallsPerPlayer}, theme ${facts.theme}.`,
+    'Return the adjusted JSON now.',
+  ].join('\n');
+  const key = readKey(provider);
+  if (key === null) return { ok: false, provider, error: 'provider not configured' };
+  const res = await postChat(userId, 'architect', provider, key, process.env['AI_MODEL_COACH']?.trim() || DEFAULT_MODEL[provider], system, userPrompt);
+  if (!res.ok) return { ok: false, provider: res.provider, error: res.error };
+  // Models sometimes wrap JSON in prose or fences: take the first {...} block.
+  const match = /\{[\s\S]*\}/.exec(res.text);
+  if (match === null) return { ok: false, provider: res.provider, error: 'no JSON object in reply' };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    return { ok: false, provider: res.provider, error: 'reply was not valid JSON' };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, provider: res.provider, error: 'reply was not a JSON object' };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const spec: { size?: unknown; wallsPerPlayer?: unknown; theme?: unknown } = {};
+  // Only these three keys survive; anything else the model invented is dropped.
+  if (Number.isFinite(obj['size'])) spec.size = Number(obj['size']);
+  if (Number.isFinite(obj['wallsPerPlayer'])) spec.wallsPerPlayer = Number(obj['wallsPerPlayer']);
+  if (typeof obj['theme'] === 'string' && obj['theme'].length <= 24) spec.theme = obj['theme'];
+  return { ok: true, provider: res.provider, spec };
+}
+
+export interface PuzzleTastePick {
+  /** 0 = any solver accepted, 1 = demand a near-unique answer. */
+  sharp: number;
+  /** 0 = quiet positions fine, 1 = prefer crowded mid-game tension. */
+  tense: number;
+}
+
+/**
+ * Daily puzzle taste proposal (PUZ-003). The model ONLY steers selection
+ * among engine-generated, engine-graded candidates — it never sees or
+ * invents a position. Output is strict JSON, clamped to 0..1 by the caller.
+ * Returns ok:false (caller uses the deterministic default) when no provider
+ * is configured or the reply is unusable.
+ */
+export async function proposePuzzleTaste(
+  userId: string,
+  provider: AIProviderId,
+  facts: { date: string; candidates: { gain: number; gap: number; tension: number }[] },
+): Promise<{ ok: true; provider: CompatId; taste: PuzzleTastePick } | { ok: false; provider: AIProviderId; error: string }> {
+  if (!isCompat(provider)) return { ok: false, provider, error: 'provider not supported' };
+  const system = [
+    'You curate a daily wall-and-pawn puzzle from pre-graded candidates. Reply with ONLY a JSON object, no prose.',
+    'Schema: {"sharp": number 0-1, "tense": number 0-1}.',
+    'sharp: prefer candidates whose best wall clearly outgains every alternative (a single answer).',
+    'tense: prefer crowded mid-game boards over quiet openings.',
+    'You must NOT describe positions, walls, or solutions. A game engine grades everything; you only set taste.',
+  ].join(' ');
+  const lines = facts.candidates.map((c, i) => `#${i}: gain ${c.gain}, uniqueness-gap ${c.gap}, tension ${c.tension}`);
+  const userPrompt = [
+    `Daily puzzle for ${facts.date}. Candidate grades (engine-measured):`,
+    ...lines,
+    'Harder is better, but keep it fair: a devilish answer must still be findable by a strong club player.',
+    'Return the taste JSON now.',
+  ].join('\n');
+  const key = readKey(provider);
+  if (key === null) return { ok: false, provider, error: 'provider not configured' };
+  const res = await postChat(userId, 'puzzle-taste', provider, key, process.env['AI_MODEL_COACH']?.trim() || DEFAULT_MODEL[provider], system, userPrompt);
+  if (!res.ok) return { ok: false, provider: res.provider, error: res.error };
+  const match = /\{[\s\S]*\}/.exec(res.text);
+  if (match === null) return { ok: false, provider: res.provider, error: 'no JSON object in reply' };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(match[0]);
+  } catch {
+    return { ok: false, provider: res.provider, error: 'reply was not valid JSON' };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, provider: res.provider, error: 'reply was not a JSON object' };
+  }
+  const obj = parsed as Record<string, unknown>;
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : null);
+  const sharp = num(obj['sharp']);
+  const tense = num(obj['tense']);
+  if (sharp === null || tense === null) return { ok: false, provider: res.provider, error: 'taste fields missing' };
+  return { ok: true, provider: res.provider, taste: { sharp, tense } };
+}

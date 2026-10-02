@@ -47,7 +47,7 @@ export function FairPlayPage() {
       <p><strong>No assistance in rated games.</strong> No engines, hints, bots-as-you, or second screens deciding moves.</p>
       <p><strong>No automation.</strong> One human per account per game. No scripts placing moves or farming.</p>
       <p><strong>No collusion.</strong> No arranged results, rating manipulation, or smurf-boosting.</p>
-      <p>Enforcement is evidence-based: server clocks, timing signals, engine-similarity analysis and human review. <Link to="/premium">Premium</Link> never buys power.</p>
+      <p>Enforcement is evidence-based: server clocks, timing signals, engine-similarity analysis and human review. Nothing you can buy changes the odds of a single game.</p>
       <p>See something? Report from any game or profile — every report reaches the moderation queue.</p>
     </Shell>
   );

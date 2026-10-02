@@ -116,6 +116,19 @@ export async function settleFinishedGame(g: GameRecord): Promise<void> {
       });
     }
     g.settled = true;
+    // Anti-cheat signals (FRP-002): advisory cases only, never auto-ban.
+    // Runs after the settled flag so a signal failure can never block settlement.
+    if (g.mode === 'ranked' && !aGuest && !bGuest) {
+      const ratingMode = ratingModeFor(g.timeControlId);
+      const winnerId = g.winnerSeat === 0 ? aId : g.winnerSeat === 1 ? bId : null;
+      const loserId = g.winnerSeat === 0 ? bId : g.winnerSeat === 1 ? aId : null;
+      if (winnerId !== null && loserId !== null) {
+        const { runSignalSweep } = await import('../fairplay/signals.js');
+        void runSignalSweep(db, {
+          gameId: g.id, winnerId, loserId, moveTimes: g.moveTimes, mode: g.mode, ratingMode,
+        }).catch(() => undefined);
+      }
+    }
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err), gameId: g.id }, 'game settlement failed — will retry');
   }

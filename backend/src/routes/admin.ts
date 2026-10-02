@@ -287,6 +287,32 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     return { ok: true };
   });
 
+  /** @openapi GET /api/v1/admin/cases — anti-cheat signal queue (FRP-002). */
+  app.get('/api/v1/admin/cases', async (req) => {
+    await requireRole(req, 'moderator');
+    const q = req.query as { status?: string };
+    const status = q.status === 'RESOLVED' || q.status === 'DISMISSED' ? q.status : q.status === 'ALL' ? 'ALL' : 'OPEN';
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ModerationCaseRepository } = await import('../modules/fairplay/signals.js');
+    const db = await getMongoDb();
+    return { cases: await new ModerationCaseRepository(db).list(status, 100) };
+  });
+
+  /** @openapi POST /api/v1/admin/cases/:id/resolve — close a signal case. */
+  app.post('/api/v1/admin/cases/:id/resolve', async (req) => {
+    const me = await requireRole(req, 'moderator');
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as { status?: string; resolution?: string };
+    if (body.status !== 'RESOLVED' && body.status !== 'DISMISSED') throw new ValidationError('Invalid resolution');
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { ModerationCaseRepository } = await import('../modules/fairplay/signals.js');
+    const db = await getMongoDb();
+    const ok = await new ModerationCaseRepository(db).resolve(id, body.status, typeof body.resolution === 'string' ? body.resolution : '');
+    if (!ok) throw new ValidationError('Case not found or already closed');
+    await audit(me.id, 'admin.cases.resolve', id, { status: body.status });
+    return { ok: true };
+  });
+
   /** @openapi POST /api/v1/admin/reports/:id/ai-review — on-demand AI triage (advisory). */
   app.post('/api/v1/admin/reports/:id/ai-review', async (req) => {
     const me = await requireRole(req, 'moderator');

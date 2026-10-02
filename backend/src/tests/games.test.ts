@@ -124,13 +124,25 @@ describe('games service: wall placement is canonically two cells', () => {
     );
   });
 
-  it('adjacent collinear walls are separate objects consuming one wall each', () => {
+  it('collinear walls two slots apart are separate objects consuming one wall each', () => {
     const svc = new GamesService();
     const g = svc.create({ creatorId: 'u1', opponentId: 'u2' });
     svc.play(g.id, 'u1', { type: 'wall', wall: { r: 4, c: 4, orientation: 'h' } });
-    const next = svc.play(g.id, 'u2', { type: 'wall', wall: { r: 4, c: 5, orientation: 'h' } });
+    const next = svc.play(g.id, 'u2', { type: 'wall', wall: { r: 4, c: 6, orientation: 'h' } });
     assert.equal(next.state.walls.length, 2);
     assert.deepEqual(next.state.wallsRemaining, [9, 9]);
+  });
+
+  it('a wall one slot away is rejected: sticks never stack half-on-half', () => {
+    const svc = new GamesService();
+    const g = svc.create({ creatorId: 'u1', opponentId: 'u2' });
+    svc.play(g.id, 'u1', { type: 'wall', wall: { r: 4, c: 4, orientation: 'h' } });
+    // h(4,5) would cover columns 5-6 and overlap h(4,4) which covers 4-5.
+    assert.throws(
+      () => svc.play(g.id, 'u2', { type: 'wall', wall: { r: 4, c: 5, orientation: 'h' } }),
+      /overlapping_wall/,
+    );
+    assert.equal(g.state.walls.length, 1, 'the rejected wall never landed');
   });
 
   it('HTTP trust boundary rejects non-slot payloads before the engine', () => {

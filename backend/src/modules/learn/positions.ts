@@ -164,65 +164,43 @@ export const LESSON_POSITIONS = {
     "c": 4
    }
   ],
+  // Every wall below is mutually legal AND placeable in this order: no two
+  // collinear pieces share a cell, so no stick ever sits half on top of another.
+  // Tuned so one more wall still buys exactly the lesson's +3.
   "walls": [
    {
-    "r": 0,
-    "c": 3,
-    "orientation": "h"
-   },
-   {
-    "r": 1,
-    "c": 3,
-    "orientation": "h"
-   },
-   {
-    "r": 0,
-    "c": 4,
-    "orientation": "h"
-   },
-   {
-    "r": 1,
-    "c": 4,
-    "orientation": "h"
-   },
-   {
-    "r": 1,
-    "c": 5,
-    "orientation": "v"
-   },
-   {
-    "r": 1,
+    "r": 2,
     "c": 1,
-    "orientation": "h"
-   },
-   {
-    "r": 1,
-    "c": 6,
-    "orientation": "h"
-   },
-   {
-    "r": 0,
-    "c": 0,
     "orientation": "v"
    },
    {
-    "r": 6,
+    "r": 2,
     "c": 7,
     "orientation": "h"
    },
    {
-    "r": 0,
-    "c": 2,
-    "orientation": "h"
-   },
-   {
-    "r": 6,
-    "c": 5,
+    "r": 5,
+    "c": 6,
     "orientation": "h"
    },
    {
     "r": 6,
     "c": 3,
+    "orientation": "v"
+   },
+   {
+    "r": 0,
+    "c": 4,
+    "orientation": "h"
+   },
+   {
+    "r": 7,
+    "c": 6,
+    "orientation": "v"
+   },
+   {
+    "r": 5,
+    "c": 4,
     "orientation": "h"
    }
   ],
@@ -231,12 +209,12 @@ export const LESSON_POSITIONS = {
    1
   ],
   "solution": {
-   "r": 1,
-   "c": 0,
+   "r": 7,
+   "c": 3,
    "orientation": "h"
   },
   "needGain": 3,
-  "solutionGain": 4
+  "solutionGain": 3
  },
  "endgame_mate1": {
   "size": 9,
@@ -270,15 +248,11 @@ export const LESSON_POSITIONS = {
     "c": 5
    }
   ],
+  // Mutually legal walls (no two collinear pieces share a cell).
   "walls": [
    {
     "r": 0,
     "c": 4,
-    "orientation": "h"
-   },
-   {
-    "r": 0,
-    "c": 3,
     "orientation": "h"
    },
    {

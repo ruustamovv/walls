@@ -6,10 +6,36 @@
  * - All runtime code must import from here, never `process.env` directly.
  * - Persistence: MongoDB (durable) + Redis (ephemeral). No PostgreSQL.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-dotenv.config();
+/**
+ * Locate the .env file in a pnpm monorepo. `dotenv.config()` alone resolves
+ * against process.cwd(), so `pnpm --filter ./backend start` (cwd=backend/)
+ * silently misses the repo-root .env and boot fails with "MONGODB_URI
+ * required". Walk up from cwd and take the first .env found; real environment
+ * variables always win over the file.
+ */
+function findEnvFile(startDir: string = process.cwd()): string | null {
+  let dir = path.resolve(startDir);
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = path.join(dir, '.env');
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch {
+      // unreadable directory: keep walking up
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+const envFile = findEnvFile();
+if (envFile !== null) dotenv.config({ path: envFile });
 
 const LogLevelSchema = z.enum(['debug', 'info', 'warn', 'error']);
 const NodeEnvSchema = z.enum(['development', 'test', 'production']);
@@ -87,6 +113,11 @@ export function loadEnv(raw: Record<string, string | undefined> = process.env): 
 /** Typed accessor (lazy-loads on first call). */
 export function getEnv(): Env {
   return loadEnv();
+}
+
+/** Absolute path of the .env actually loaded (null when none found). */
+export function loadedEnvFile(): string | null {
+  return envFile;
 }
 
 /** Test helper — resets the singleton so tests can re-parse env. */

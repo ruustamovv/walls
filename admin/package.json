@@ -10,7 +10,8 @@
     "preview": "vite preview --port 5174",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"admin console: no unit tests (covered by backend admin E2E)\" && exit 0"
+    "test": "echo \"admin console: no unit tests (covered by backend admin E2E)\" && exit 0",
+    "start": "vite preview --host 127.0.0.1 --port 5174 --strictPort"
   },
   "dependencies": {
     "react": "^18.3.1",

@@ -1,14 +1,19 @@
 # PROJECT_STATUS — live phase tracker
 
-> Granular machine-readable tracker: `PROJECT_LIVE_TODO.json` (174 tasks,
+> Granular machine-readable tracker: `PROJECT_LIVE_TODO.json` (175 tasks,
 > phases 00–21, status/owner/deps/acceptance per task). Dev overlay reads
 > `frontend/public/live-todo.json` (synced via
 > `scripts/setup/sync-live-todo.mjs`, visible only with `VITE_DEV_TOOLS=true`,
 > toggle Ctrl/Cmd+Shift+T). This file stays as the human summary.
 >
-> Updated: 2026-09-30. Source of truth for "where are we".
-> Statuses: `NOT_STARTED` · `IN_PROGRESS` · `COMPLETE` · `BLOCKED`.
+> Updated: 2026-10-01. Source of truth for "where are we".
+> Statuses: `NOT_STARTED` · `IN_PROGRESS` · `COMPLETE` · `BLOCKED` ·
+> `PARTIAL` · `EXPERIMENTAL` · `SKIPPED`.
 > Spec phases 00–29 map below (master prompt §§164–193).
+>
+> **Current tally: 175 tasks — 171 COMPLETE · 1 SKIPPED · 2 BLOCKED · 1 PARTIAL.**
+> The only remaining non-COMPLETE items are the two owner-only brand tasks and
+> the QA sign-off that depends on them. See Milestone H.
 
 | Phase | Name (spec) | Status | Updated | Tests / evidence |
 |------:|-------------|--------|---------|------------------|
@@ -32,8 +37,8 @@
 | 20–21 | Tournaments / Clubs-social | IN_PROGRESS | 2026-09-30 | clubs + chat; tournaments + ARENA format (live re-pairing, countdown, finish) + /tournaments UI |
 | 22–23 | Admin core/advanced | IN_PROGRESS | 2026-09-27 | STANDALONE console (:5174): dashboard + weekly charts + top events, users + warn/mute/entitlements, live games + queue, tournaments cancel, clubs delete, reports triage, announcements publish, AI budgets/spend/quota overrides, flags, filtered audit + CSV — RBAC + audited; admin + ops HTTP E2E green |
 | 24 | Premium/cosmetics | IN_PROGRESS | 2026-09-27 | entitlement ledger + coach-quota gating + admin grant/revoke + /premium UI; checkout honestly disabled (no provider); cosmetics catalog pending |
-| 25 | Special modes (Fog/4P/Siege…) | IN_PROGRESS | 2026-09-30 | party table live: 2–4P local + bots (9×9/5, 13×13, 15×15 presets), own board/HUD/result; ONLINE 4P live (N-seat service + bucket matchmaking + private links + multi:* sockets + placement settlement, casual-only) + online party UI; Fog/Team/Chaos still pending |
-| 26–29 | Hardening/load/polish/readiness | NOT_STARTED | — | threat-model + incident stubs |
+| 25 | Special modes (Fog/Team/Chaos/Siege) | COMPLETE | 2026-10-01 | **All four shipped, all default-off, all casual-only.** Team 2v2 (`teamMode`, seats 1+3 vs 2+4). **Fog** (`fog`): server-side per-seat projection — `emitMultiState` sends one payload per socket, so hiding walls client-side (which would still ship them over the wire) is impossible by construction. **Chaos** (`chaos`): wall budget rotates every 6 plies, seed mandatory so replays stay deterministic, total budget conserved. **Siege** (`siege`): asymmetric 2P, attacker +4 walls and a 1-row head start. Engine 100/100, backend 163/163 |
+| 26–29 | Hardening/load/polish/readiness | PARTIAL | 2026-10-01 | threat-model + incident stubs + load rig + **real-browser E2E (6/6 Chromium)**; see Milestone H |
 
 ## Phase DB-01 — PostgreSQL → MongoDB + Redis
 
@@ -113,8 +118,65 @@ by default on fresh seeds.
 Evidence: engine 51/51 lint-clean, backend 79/79 lint-clean,
 `verify:live` 8/8 exit 0, frontend + admin typecheck + build clean.
 
+## Milestone H — rule closure + live database (2026-10-01)
+
+Delivered:
+
+- **MLT-007** placement + first-win-end rules. Opt-in `continueAfterWin`:
+  seats that reach their goal are recorded in finish order and removed from
+  turn rotation; the game ends when one active seat remains and the final
+  slot(s) are recorded so a full 1..N ordering always exists. Default
+  behaviour is unchanged.
+- **FRP-002** anti-cheat signals. Per-move timestamps on 1v1 + multi records;
+  three detectors (sub-500ms streak, repeated same-pair ranked wins, loss-streak
+  sandbagging) write `moderation_cases` docs with evidence bundles, surfaced at
+  `GET /api/v1/admin/cases` with a **Fair-play** tab in the admin console.
+  Advisory only — never auto-bans.
+- **AIC-008** Architect. Prompt → bounded spec → optional LLM
+  `{size, wallsPerPlayer, theme}` proposal → **engine validation gate** (every
+  wall through `validateMove`, both pawns must keep a live route). Share links
+  decode to legal positions.
+- **MLT-009 COMPLETE** — all four special modes shipped. Team 2v2; **Fog of
+  war** with server-side per-seat projection (the socket fan-out sends one
+  payload per player, so the hidden walls never reach the browser at all);
+  **Chaos** with a seeded, budget-conserving rotation; **Siege** as asymmetric
+  1v1. Every mode defaults off, is validated server-side (bad combinations are
+  rejected with a precise reason, never silently ignored), and is casual-only.
+- **TST-006** real-browser Playwright harness: groove hover-to-place, 390px
+  touch play, guest→signup click path, a11y landmarks, reduced motion, and a
+  zero-console-error / zero-unexpected-4xx gate.
+- **Live database connected.** Atlas `quoridor`: 40 collections, 57 indexes,
+  verified end-to-end through the real API.
+
+Infrastructure fixes found while connecting the live DB (all real bugs):
+
+1. `.env` was never loaded under pnpm scripts — `dotenv.config()` resolves
+   against cwd, so `pnpm --filter ./backend start` could not see the root file.
+2. A Redis outage silently broke all auth (200 with an unreadable session
+   cookie). Session store now degrades to a process-local mirror and logs.
+3. `ensureIndexes()` was missing `moderation_cases` and several others; added
+   a **unique `stripe_events.eventId`** (webhook idempotency) and a TTL index
+   on `email_verifications`.
+4. `pnpm dev` never built the engine, so a fresh clone could not boot.
+
+Run it: `pnpm doctor` (pre-flight) → `pnpm dev`.
+
+Evidence: engine 88/88 · backend 156/156 · e2e API 9/9 · e2e browser 6/6 ·
+frontend + admin typecheck + build clean. Full sweep:
+`docs/release/qa-2026-10-01.md`.
+
 ## Current focus
-1. Manual two-browser + mobile-viewport QA pass (visual polish from findings).
-2. Online 4P (service/socket/matchmaking for N seats), Fog/Team/Chaos modes.
-3. Mirror/Architect, cosmetics catalog, lessons video layer.
-4. Phase 01 follow-up: live registrar checks for top-5 brands (.com + .uz) + trademark screen before purchase.
+
+Everything not owner-blocked is delivered. Remaining work is not ours to do:
+
+1. **BRN-002 / BRN-003 (BLOCKED, owner-only).** Trademark-safe brand name and
+   domain purchase. On decision: update `frontend/src/lib/brand.ts`, then
+   re-verify registrar checks, `CORS_ORIGINS` and `FRONTEND_URL`.
+2. Start a real Redis (`docker run -d -p 6379:6379 redis:7`) — matchmaking,
+   presence and queues currently run degraded without it.
+3. Optional backlog, none blocking release: Fog mode (needs server-side
+   per-seat state projection), cosmetics catalog, Mirror mode, lessons video
+   layer, cross-browser + manual-assistive-technology QA.
+
+Not claimed as verified anywhere: manual NVDA/JAWS/VoiceOver sessions,
+non-Chromium browsers, and anything requiring Redis.

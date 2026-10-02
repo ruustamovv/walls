@@ -5,15 +5,19 @@
  * server-authoritative validation, server clocks with Fischer increment,
  * invite-link expiry, first-to-goal wins. V1 rules: casual-only (no
  * ratings), no draws — resign/timeout finish immediately with placement
- * by shortest-path distance (winner first).
+ * by shortest-path distance (winner first). Opt-in `continueForPlacement`
+ * (MLT-007) instead records full 1..N finish order: each seat reaching its
+ * goal is eliminated from rotation and the game ends when one seat remains.
  */
 import {
   applyMultiMove,
   createMultiGame,
   defaultSides,
+  hiddenWallCount,
   presetForPlayers,
   shortestToSide,
   validateMultiMove,
+  visibleWalls,
   MULTI_RULES_VERSION,
   type MultiAction,
   type MultiState,
@@ -35,9 +39,21 @@ export interface MultiGameRecord {
   /** Always 'casual' in v1 — no rated multi pools yet. */
   mode: string;
   actions: MultiAction[];
+  /** Server timestamp (ms) per applied action — timing-signal evidence (FRP-002). */
+  moveTimes: number[];
   winnerSeat: number | null;
   /** Seats ordered winner-first (by goal distance at finish). */
   placement: number[];
+  /** Opt-in continuation: seats record finish order instead of first-wins. */
+  continueForPlacement: boolean;
+  /** Opt-in team rules (MLT-009): first seat home wins for its team. */
+  teamMode: boolean;
+  /** Fog of war (MLT-009): snapshots are projected per seat. */
+  fog: boolean;
+  /** Chaos mode (MLT-009): wall budget rotates on a cadence. */
+  chaos: boolean;
+  /** Siege mode (MLT-009): asymmetric economy. */
+  siege: boolean;
   finishReason: MultiFinishReason;
   settled: boolean;
   /** Client action id of the most recently applied intent (echo for dedupe). */
@@ -94,7 +110,17 @@ export class MultiGamesService {
     boardSize?: number;
     wallsPerPlayer?: number;
     timeControl?: string;
-    visibility?: GameVisibility;
+visibility?: GameVisibility;
+    continueForPlacement?: boolean;
+    /** MLT-009: seats 0+2 vs 1+3 share the win (2 or 4 seats only). */
+    teamMode?: boolean;
+    /** MLT-009: each seat only sees walls adjacent to its own pawn. */
+    fog?: boolean;
+    /** MLT-009 chaos: rotating wall budget. Needs a seed for replays. */
+    chaos?: boolean;
+    seed?: number;
+    /** MLT-009 siege: seat 0 gets extra walls and a one-row head start. */
+    siege?: boolean;
   }): MultiGameRecord {
     const players = input.players ?? 4;
     if (!Number.isInteger(players) || players < 2 || players > 6) {
@@ -112,7 +138,32 @@ export class MultiGamesService {
       throw new ValidationError('Invalid wallsPerPlayer');
     }
     const sides = defaultSides(players);
-    const state = createMultiGame({ players, size: boardSize, wallsPerPlayer: wallsPerPlayer, sides });
+    const continueForPlacement = input.continueForPlacement === true;
+    const teamMode = input.teamMode === true;
+    if (teamMode && players !== 2 && players !== 4) {
+      throw new ValidationError('Team mode needs 2 or 4 seats');
+    }
+    if (teamMode && continueForPlacement) {
+      throw new ValidationError('Team mode and continue-for-placement are mutually exclusive');
+    }
+    const fog = input.fog === true;
+    const chaos = input.chaos === true;
+    const siege = input.siege === true;
+    // Chaos needs a seed: replays reconstruct state from the action log, so an
+    // unseeded rotation could never be reproduced.
+    const seed = input.seed ?? Date.now() >>> 0;
+    const state = createMultiGame({
+      players,
+      size: boardSize,
+      wallsPerPlayer: wallsPerPlayer,
+      sides,
+      continueAfterWin: continueForPlacement,
+      teamMode,
+      fog,
+      chaos,
+      ...(chaos ? { seed } : {}),
+      siege,
+    });
     const now = Date.now();
     const playerIds: (string | null)[] = Array.from({ length: players }, (_, i) => (i === 0 ? input.creatorId : null));
     const record: MultiGameRecord = {
@@ -123,8 +174,14 @@ export class MultiGamesService {
       timeControlId: tc.id,
       mode: 'casual',
       actions: [],
+      moveTimes: [],
       winnerSeat: null,
       placement: [],
+      continueForPlacement,
+      teamMode,
+      fog,
+      chaos,
+      siege,
       finishReason: null,
       settled: false,
       lastActionId: null,
@@ -204,6 +261,7 @@ export class MultiGamesService {
     const result = applyMultiMove(g.state, action);
     g.state = result.state;
     g.actions.push(action);
+    g.moveTimes.push(Date.now());
     if (opts.actionId !== undefined) {
       const seen = this.seenActionIds.get(gameId) ?? [];
       seen.push(opts.actionId);
@@ -214,7 +272,23 @@ export class MultiGamesService {
     g.clock.lastTickAt = Date.now();
     g.updatedAt = Date.now();
     if (g.state.isOver) {
-      this.finishByDistance(g, 'goal');
+      if (g.teamMode) {
+        // First seat home wins for its whole team (MLT-009).
+        g.status = 'finished';
+        g.placement = [...g.state.placement];
+        g.winnerSeat = g.state.winner;
+        g.finishReason = 'goal';
+        g.updatedAt = Date.now();
+      } else if (g.continueForPlacement) {
+        // Engine already recorded the full finish order (MLT-007).
+        g.status = 'finished';
+        g.placement = [...g.state.placement];
+        g.winnerSeat = g.state.winner;
+        g.finishReason = 'goal';
+        g.updatedAt = Date.now();
+      } else {
+        this.finishByDistance(g, 'goal');
+      }
     }
     return g;
   }
@@ -248,7 +322,18 @@ export class MultiGamesService {
     }
   }
 
-  snapshot(g: MultiGameRecord): {
+  /**
+   * Public snapshot for one viewer.
+   *
+   * CRITICAL (MLT-009 fog): when `fog` is on, the wall list is replaced by
+   * the subset that viewer may see. Broadcasting one shared snapshot would
+   * reveal the whole board to everyone and make the mode a lie — so every
+   * emission MUST pass the recipient's seat. Non-fog games ignore `viewer`.
+   *
+   * `viewerSeat: null` means spectator/unknown: fog games reveal nothing
+   * rather than everything, so a spectator cannot spectate the far side.
+   */
+  snapshot(g: MultiGameRecord, viewerSeat: number | null = null): {
     id: string;
     status: MultiGameStatus;
     state: MultiState;
@@ -259,6 +344,18 @@ export class MultiGamesService {
     isOver: boolean;
     winnerSeat: number | null;
     placement: number[];
+    eliminated: number[];
+    continueForPlacement: boolean;
+    /** Seat -> team index in team mode, null in free-for-all. */
+    teamOf: number[] | null;
+    /** Winning team index in team mode, else null. */
+    winningTeam: number | null;
+    teamMode: boolean;
+    fog: boolean;
+    chaos: boolean;
+    siege: boolean;
+    /** Walls hidden from this viewer (fog only; 0 otherwise). */
+    hiddenWalls: number;
     finishReason: MultiFinishReason;
     moveCount: number;
     /** Echo of the most recently applied client action id (idempotency). */
@@ -270,10 +367,20 @@ export class MultiGamesService {
     createdAt: number;
     updatedAt: number;
   } {
+    // Fog projection: non-fog games pass the authoritative state through
+    // untouched; fog games hand each viewer only the walls they may see.
+    let projected: MultiState = g.state;
+    let hiddenWalls = 0;
+    if (g.fog) {
+      const seat = viewerSeat !== null && viewerSeat >= 0 && viewerSeat < g.state.players ? viewerSeat : null;
+      const shown = seat === null ? [] : visibleWalls(g.state, seat);
+      hiddenWalls = g.state.walls.length - shown.length;
+      projected = { ...g.state, walls: shown };
+    }
     return {
       id: g.id,
       status: g.status,
-      state: g.state,
+      state: projected,
       seats: [...g.playerIds],
       clockMs: [...g.clock.remainingMs],
       incrementMs: g.clock.incrementMs,
@@ -281,6 +388,15 @@ export class MultiGamesService {
       isOver: g.state.isOver || g.status === 'finished',
       winnerSeat: g.winnerSeat,
       placement: [...g.placement],
+      eliminated: [...g.state.eliminated],
+      continueForPlacement: g.continueForPlacement,
+      teamOf: g.state.teamOf === null ? null : [...g.state.teamOf],
+      winningTeam: g.state.winningTeam,
+      teamMode: g.teamMode,
+      fog: g.fog,
+      chaos: g.chaos,
+      siege: g.siege,
+      hiddenWalls,
       finishReason: g.finishReason,
       moveCount: g.actions.length,
       lastActionId: g.lastActionId,

@@ -122,6 +122,22 @@ function LiveGame({ snap, game, id, userId, isGuest, tab, setTab, confirmResign,
   const nameOf = (seat: 0 | 1): string => game.meta?.[seat]?.username ?? (snap.seats[seat] !== null ? `Player ${seat + 1}` : 'Waiting…');
   const ratingOf = (seat: 0 | 1): number | null => game.meta?.[seat]?.rating ?? null;
   const done = snap.isOver || snap.status === 'finished';
+  const waiting = snap.status === 'waiting';
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [joinError, setJoinError] = useState<string | null>(null);
+
+  async function join(): Promise<void> {
+    setJoinBusy(true);
+    setJoinError(null);
+    try {
+      await api.joinGame(snap.id);
+      game.refresh();
+    } catch (err) {
+      setJoinError(err instanceof Error ? err.message : 'Could not join');
+    } finally {
+      setJoinBusy(false);
+    }
+  }
 
   return (
     <div style={{ animation: 'quoridor-lift .3s ease' }}>
@@ -142,9 +158,15 @@ function LiveGame({ snap, game, id, userId, isGuest, tab, setTab, confirmResign,
       </span>
       <div className="quoridor-game" style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) 330px', gap: 14, alignItems: 'start' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingTop: 58 }}>
-          <EvalBar whitePct={bottomWin} label={`You ${bottomWin}% · Opp ${topWin}%`} />
-          <span className="font-mono" style={{ fontSize: 11, fontWeight: 800 }}>{bottomWin.toFixed(0)}%</span>
-          <Badge tone="info">Free</Badge>
+          {waiting ? (
+            <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center' }}>Chance appears when the game starts</span>
+          ) : (
+            <>
+              <EvalBar whitePct={bottomWin} label={`You ${bottomWin}% · Opp ${topWin}%`} />
+              <span className="font-mono" style={{ fontSize: 11, fontWeight: 800 }}>{bottomWin.toFixed(0)}%</span>
+              <Badge tone="info">Free</Badge>
+            </>
+          )}
         </div>
         <div style={{ maxWidth: 660, width: '100%', margin: '0 auto' }}>
           <PlayerCard name={nameOf(topSeat)} rating={ratingOf(topSeat)} clockMs={game.clocks[topSeat]} clockActive={!done && snap.turn === topSeat} lowTime={game.clocks[topSeat] < 30000} wallsLeft={snap.state.wallsRemaining[topSeat]} wallsTotal={state.wallsPerPlayer} isTurn={!done && snap.turn === topSeat} isYou={mySeat === topSeat} connected={game.connected} accent={topSeat} />
@@ -159,6 +181,20 @@ function LiveGame({ snap, game, id, userId, isGuest, tab, setTab, confirmResign,
               ? (<><button onClick={() => game.sendResign()} style={{ ...btn, background: 'var(--bad)', color: '#fff', borderColor: 'var(--bad)' }}>Confirm</button><button onClick={() => setConfirmResign(false)} style={btn}>Keep playing</button></>)
               : (<><button onClick={() => game.sendDrawOffer()} style={btn} disabled={snap.drawOfferBy === mySeat}>{snap.drawOfferBy === mySeat ? 'Offer sent' : 'Draw'}</button><button onClick={() => setConfirmResign(true)} style={btn}>Resign</button></>))}
           </div>
+          {waiting && spectating && (
+            <Card>
+              <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Open seat</h3>
+              {userId === null ? (
+                <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}><Link to={`/login?next=/game/${snap.id}`}>Log in</Link> to take this seat.</p>
+              ) : (
+                <>
+                  <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 8px' }}>This link is a private invite — first to join plays.</p>
+                  {joinError !== null && <p role="alert" style={{ color: 'var(--bad)', fontSize: 13 }}>{joinError}</p>}
+                  <Button onClick={() => void join()} disabled={joinBusy} style={{ width: '100%' }}>{joinBusy ? 'Joining…' : 'Join game'}</Button>
+                </>
+              )}
+            </Card>
+          )}
           {!spectating && !done && snap.drawOfferBy !== null && snap.drawOfferBy !== mySeat && (
             <Card><Badge tone="warn">Draw offered</Badge> <Button size="sm" onClick={() => game.sendDrawResponse(true)}>Accept</Button> <Button size="sm" variant="ghost" onClick={() => game.sendDrawResponse(false)}>Decline</Button></Card>
           )}
@@ -171,7 +207,7 @@ function LiveGame({ snap, game, id, userId, isGuest, tab, setTab, confirmResign,
               ))}
             </div>
             {tab === 'moves' && <MoveList actions={game.actions} size={snap.state.size} onExport={() => exportGame(snap.id, snap)} />}
-            {tab === 'chat' && <ChatBox messages={game.chat} canSend={!spectating && !done} quickOnly={snap.mode === 'ranked'} onSend={game.sendChat} names={new Map([...(snap.seats[0] !== null ? [[snap.seats[0], nameOf(0)] as [string, string]] : []), ...(snap.seats[1] !== null ? [[snap.seats[1], nameOf(1)] as [string, string]] : [])])} myUserId={userId} />}
+            {tab === 'chat' && <ChatBox messages={game.chat} canSend={!spectating && !done && !isGuest} quickOnly={snap.mode === 'ranked'} onSend={game.sendChat} names={new Map([...(snap.seats[0] !== null ? [[snap.seats[0], nameOf(0)] as [string, string]] : []), ...(snap.seats[1] !== null ? [[snap.seats[1], nameOf(1)] as [string, string]] : [])])} myUserId={userId} guestNote={isGuest === true} />}
             {tab === 'review' && (done ? <ReviewPanel gameId={id} /> : <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>Review unlocks at finish. Win% bar stays live.</p>)}
           </Card>
           <Card>
@@ -210,7 +246,7 @@ function GameResult({ snap, mySeat, myUsername, isGuest, onRematch, onReview, on
 
 const btn: React.CSSProperties = { background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10, padding: '6px 12px', fontSize: 13, fontWeight: 800, color: 'var(--ink)' };
 
-function ChatBox({ messages, canSend, quickOnly, onSend, names, myUserId }: {
+function ChatBox({ messages, canSend, quickOnly, onSend, names, myUserId, guestNote }: {
   messages: { from: string; body: string; at: number }[];
   canSend: boolean;
   /** Ranked games: preset buttons only, no free text (server-enforced). */
@@ -218,6 +254,7 @@ function ChatBox({ messages, canSend, quickOnly, onSend, names, myUserId }: {
   onSend: (body: string) => void;
   names: Map<string, string>;
   myUserId: string | null;
+  guestNote?: boolean;
 }) {
   const [draft, setDraft] = useState('');
   return (
@@ -232,6 +269,9 @@ function ChatBox({ messages, canSend, quickOnly, onSend, names, myUserId }: {
           </p>
         ))}
       </div>
+      {guestNote === true && !canSend && (
+        <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>Guests can read chat but not send — register to join the conversation.</p>
+      )}
       {canSend && (quickOnly === true ? (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} aria-label="quick chat">
           {QUICK_CHAT.map((q) => (

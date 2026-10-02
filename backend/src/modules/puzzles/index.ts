@@ -2,6 +2,7 @@ export {
   attemptDaily,
   attemptMine,
   getDailyPuzzle,
+  getDailyPuzzleView,
   myMistakes,
   publicView,
   streakFrom,

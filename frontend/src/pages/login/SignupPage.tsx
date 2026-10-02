@@ -1,12 +1,20 @@
 /**
  * Dedicated signup window: benefits, strength meter, terms, OAuth.
+ *
+ * Email and username are checked against the server WHILE you type (debounced)
+ * so "already taken" appears before submitting, and the charset rule for
+ * usernames is enforced on every keystroke rather than at submit time.
  */
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import OAuthButtons from '../../components/auth/OAuthButtons.js';
 import { Button, Card } from '../../components/ui/primitives.js';
 import { useSession } from '../../stores/session.js';
 import { BRAND } from '../../lib/brand.js';
+import { api } from '../../lib/api.js';
+
+const USERNAME_RE = /^[a-zA-Z0-9_]+$/;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function strength(password: string): { label: string; width: string; color: string } {
   let score = 0;
@@ -24,8 +32,10 @@ const PERKS = [
   'Rated games on every time control',
   'Glicko ratings, divisions & leaderboards',
   'Daily puzzles, streaks & personal training',
-  'Friends, clubs, tournaments & replays',
+  'Friends, clubs & replays',
 ];
+
+type Availability = { email: 'idle' | 'free' | 'taken'; username: 'idle' | 'free' | 'taken' };
 
 export default function SignupPage() {
   const [email, setEmail] = useState('');
@@ -33,21 +43,56 @@ export default function SignupPage() {
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [terms, setTerms] = useState(false);
+  const [avail, setAvail] = useState<Availability>({ email: 'idle', username: 'idle' });
   const session = useSession();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get('next') ?? '/play';
   const meter = strength(password);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!terms) return;
-    // Guests convert in place (same id → history preserved); others register.
-    if (session.user?.guest === true) {
-      if (await session.convertGuest(email, username, password)) navigate(next);
+  // Charset rule, enforced live: letters, digits and underscore only.
+  const usernameCharsetOk = username.length === 0 || USERNAME_RE.test(username);
+  const emailShapeOk = email.length === 0 || EMAIL_RE.test(email);
+
+  // Debounced availability probe. AbortController keeps a slow reply from
+  // overwriting a newer one.
+  const reqId = useRef(0);
+  useEffect(() => {
+    const cleanEmail = email.trim();
+    const cleanUser = username.trim();
+    if (!EMAIL_RE.test(cleanEmail) || cleanUser.length < 3 || !USERNAME_RE.test(cleanUser)) {
+      setAvail((a) => ({ email: 'idle', username: 'idle' }));
       return;
     }
-    if (await session.register(email, username, password)) navigate(next);
+    const id = ++reqId.current;
+    const timer = setTimeout(() => {
+      api.availability({ email: cleanEmail, username: cleanUser })
+        .then((r) => {
+          if (id !== reqId.current) return;
+          setAvail({
+            email: r.emailAvailable ? 'free' : 'taken',
+            username: r.usernameAvailable ? 'free' : 'taken',
+          });
+        })
+        .catch(() => { /* offline: register remains the judge */ });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [email, username]);
+
+  const blocked = useMemo(
+    () => avail.email === 'taken' || avail.username === 'taken' || !usernameCharsetOk || !emailShapeOk,
+    [avail, usernameCharsetOk, emailShapeOk],
+  );
+
+  async function submit(e: React.FormEvent): Promise<void> {
+    e.preventDefault();
+    if (!terms || blocked) return;
+    // Guests convert in place (same id → history preserved); others register.
+    if (session.user?.guest === true) {
+      if (await session.convertGuest(email.trim(), username.trim(), password)) navigate(next);
+      return;
+    }
+    if (await session.register(email.trim(), username.trim(), password)) navigate(next);
   }
 
   return (
@@ -66,7 +111,7 @@ export default function SignupPage() {
           ))}
         </ul>
         <p style={{ color: 'var(--muted)', fontSize: 13 }}>
-          Free forever for core play. <Link to="/premium">Premium</Link> only buys analysis & cosmetics — never power.
+          Everything core is free, forever — every game mode, rating and puzzle.
         </p>
       </div>
       <Card>
@@ -79,18 +124,72 @@ export default function SignupPage() {
         <form onSubmit={submit}>
           <label style={{ display: 'block', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
             <span style={{ display: 'block', marginBottom: 6 }}>Email</span>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required style={inputStyle} />
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              required
+              aria-invalid={!emailShapeOk || avail.email === 'taken'}
+              aria-describedby="email-hint"
+              style={{ ...inputStyle, borderColor: !emailShapeOk || avail.email === 'taken' ? 'var(--bad)' : undefined }}
+            />
+            <FieldHint
+              id="email-hint"
+              tone={!emailShapeOk ? 'bad' : avail.email === 'taken' ? 'bad' : avail.email === 'free' ? 'good' : 'muted'}
+            >
+              {!emailShapeOk
+                ? 'Enter a valid email address.'
+                : avail.email === 'taken'
+                  ? 'That email is already registered — each address can be used once.'
+                  : avail.email === 'free'
+                    ? 'Email is available.'
+                    : 'One account per email address.'}
+            </FieldHint>
           </label>
           <label style={{ display: 'block', marginBottom: 12, fontSize: 14, fontWeight: 600 }}>
-            <span style={{ display: 'block', marginBottom: 6 }}>Username (letters, numbers, _)</span>
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required minLength={3} maxLength={24} style={inputStyle} />
+            <span style={{ display: 'block', marginBottom: 6 }}>Username</span>
+            <input
+              value={username}
+              onChange={(e) => {
+                // Reject illegal characters at the keystroke, so the field can
+                // never hold anything outside letters / digits / underscore.
+                const raw = e.target.value;
+                const clean = USERNAME_RE.test(raw) ? raw : raw.replace(/[^a-zA-Z0-9_]/g, '');
+                setUsername(clean);
+              }}
+              autoComplete="username"
+              required
+              minLength={3}
+              maxLength={24}
+              aria-invalid={!usernameCharsetOk || avail.username === 'taken'}
+              aria-describedby="username-hint"
+              style={{ ...inputStyle, borderColor: avail.username === 'taken' ? 'var(--bad)' : undefined }}
+            />
+            <FieldHint
+              id="username-hint"
+              tone={!usernameCharsetOk ? 'bad' : avail.username === 'taken' ? 'bad' : avail.username === 'free' ? 'good' : 'muted'}
+            >
+              {!usernameCharsetOk
+                ? 'Letters, numbers and underscore only.'
+                : avail.username === 'taken'
+                  ? 'That username is taken.'
+                  : avail.username === 'free'
+                    ? 'Username is available.'
+                    : 'Letters, numbers and _ only (3–24).'}
+            </FieldHint>
           </label>
           <label style={{ display: 'block', marginBottom: 6, fontSize: 14, fontWeight: 600 }}>
             <span style={{ display: 'block', marginBottom: 6 }}>Password</span>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
-                type={show ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password" required minLength={8} style={{ ...inputStyle, flex: 1 }}
+                type={show ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="new-password"
+                required
+                minLength={8}
+                style={{ ...inputStyle, flex: 1 }}
               />
               <Button variant="ghost" onClick={() => setShow((s) => !s)}>{show ? 'Hide' : 'Show'}</Button>
             </div>
@@ -108,7 +207,7 @@ export default function SignupPage() {
             <span>I accept the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy Policy</Link>, and I confirm fair play.</span>
           </label>
           {session.error !== null && <p role="alert" style={{ color: 'var(--bad)' }}>{session.error}</p>}
-          <Button type="submit" disabled={session.busy || !terms} style={{ width: '100%' }}>
+          <Button type="submit" disabled={session.busy || !terms || blocked} style={{ width: '100%' }}>
             {session.busy ? 'Creating…' : 'Create account'}
           </Button>
         </form>
@@ -119,6 +218,21 @@ export default function SignupPage() {
       </Card>
       <style>{`@media (max-width: 820px) { .nexus-auth-split { grid-template-columns: minmax(0,1fr) !important; } }`}</style>
     </div>
+  );
+}
+
+function FieldHint({ id, tone, children }: { id: string; tone: 'good' | 'bad' | 'muted'; children: React.ReactNode }) {
+  return (
+    <span
+      id={id}
+      role="status"
+      style={{
+        display: 'block', marginTop: 5, fontSize: 12, fontWeight: 600,
+        color: tone === 'good' ? 'var(--good)' : tone === 'bad' ? 'var(--bad)' : 'var(--muted)',
+      }}
+    >
+      {children}
+    </span>
   );
 }
 

@@ -120,7 +120,7 @@ export default function HomePage() {
           <h2 className="font-display" style={{ margin: 0 }}>Sparring ladder</h2>
           <Badge tone="info">all running the real engine</Badge>
         </div>
-        <p style={{ color: 'var(--muted)', margin: '0 0 14px', fontSize: 14 }}>From Rookie to Apex. <Link to="/bots">Meet them all →</Link></p>
+        <p style={{ color: 'var(--muted)', margin: '0 0 14px', fontSize: 14 }}>From Rookie to Apex. <Link to="/play?cat=bots">Meet them all →</Link></p>
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
           {BOTS.slice(0, 6).map((b) => (
             <Link
@@ -145,7 +145,7 @@ export default function HomePage() {
         </div>
         <div style={{ marginTop: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <Link to="/play"><Button>Play now</Button></Link>
-          <Link to="/watch"><Button variant="ghost">Watch live</Button></Link>
+          <Link to="/puzzles"><Button variant="ghost">Daily puzzle</Button></Link>
         </div>
       </Card>
       <style>{`@media (max-width: 900px) { .nexus-hero { grid-template-columns: minmax(0,1fr) !important; } }`}</style>

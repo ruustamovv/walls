@@ -11,6 +11,7 @@ exactly one source of scaling truth.
 | 2 | duel | 9×9 | 10 | Classic casual duel |
 | 3 | 2v1 | 13×13 | 10 | Roomier triangle (S,E,W starts) |
 | 4 | 3v1 | 9×9 | 5 | Classic 4P wall distribution |
+| 4 | 2v2 team | 9×9 | 5 | `MULTI_PRESETS.team4` — same geometry as party4, teams 0+2 vs 1+3 (MLT-009) |
 | 5 | 4v1 | 19×19 | 8 | Shared S edge w/ offset lanes; room to maneuver |
 | 6 | 5v1 | 21×21 | 8 | Shared S+N edges w/ offset lanes |
 

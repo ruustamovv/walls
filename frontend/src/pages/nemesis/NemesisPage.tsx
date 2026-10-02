@@ -27,6 +27,8 @@ export function nemesisBotDef(p: Profile): BotDef {
     wallBias: p.wallBias,
     replySearch: p.replySearch,
     budgetMs: p.budgetMs,
+    depth: 2,
+    maxNodes: 500,
   };
 }
 
@@ -44,6 +46,8 @@ export function mirrorBotDef(p: Mirror): BotDef {
     wallBias: p.wallBias,
     replySearch: p.replySearch,
     budgetMs: p.budgetMs,
+    depth: 2,
+    maxNodes: 400,
   };
 }
 

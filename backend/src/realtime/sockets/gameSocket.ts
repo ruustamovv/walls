@@ -22,6 +22,7 @@ import { redeemSocketTicket } from '../tickets.js';
 import { childLogger } from '../../common/logging/logger.js';
 import { gamesService } from '../../modules/games/service.js';
 import { multiGamesService } from '../../modules/multiGames/service.js';
+import { emitMultiState, emitMultiStateTo } from './multi-fog.js';
 import { settleFinishedGame } from '../../modules/games/finish.js';
 import { settleMultiGame } from '../../modules/multiGames/finish.js';
 import { persistGameFinished, persistMoveAppended } from '../../modules/games/persistence.js';
@@ -397,7 +398,8 @@ export function attachGameSocket(httpServer: HttpServer): Server {
         }
         void socket.join(gameId);
         const g = multiGamesService.get(gameId);
-        socket.emit('multi:state', multiGamesService.snapshot(g));
+        // Fog (MLT-009): always seat-projected, even on join.
+        emitMultiStateTo(io, socket.id, g, userId);
       } catch (err) {
         socket.emit('game:error', { message: err instanceof Error ? err.message : 'join failed' });
       }
@@ -420,7 +422,8 @@ export function attachGameSocket(httpServer: HttpServer): Server {
         if (g.status === 'finished' && !g.settled) {
           void settleMultiGame(g).catch(() => undefined);
         }
-        io.to(gameId).emit('multi:state', multiGamesService.snapshot(g));
+        // Fog (MLT-009): one payload per seat, never a shared broadcast.
+        emitMultiState(io, gameId, g);
       } catch (err) {
         socket.emit('game:error', { message: err instanceof Error ? err.message : 'move rejected' });
       }
@@ -440,7 +443,7 @@ export function attachGameSocket(httpServer: HttpServer): Server {
         if (!g.settled) {
           void settleMultiGame(g).catch(() => undefined);
         }
-        io.to(gameId).emit('multi:state', multiGamesService.snapshot(g));
+        emitMultiState(io, gameId, g);
       } catch (err) {
         socket.emit('game:error', { message: err instanceof Error ? err.message : 'resign failed' });
       }
@@ -504,7 +507,7 @@ export function attachGameSocket(httpServer: HttpServer): Server {
         if (typeof gameId !== 'string') return;
         void socket.join(gameId);
         const g = multiGamesService.get(gameId);
-        socket.emit('multi:state', multiGamesService.snapshot(g));
+        emitMultiStateTo(io, socket.id, g, userId);
       } catch (err) {
         socket.emit('game:error', { message: err instanceof Error ? err.message : 'reconnect failed' });
       }

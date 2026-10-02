@@ -84,6 +84,21 @@ export const api = {
   reportAiReview: (id: string) => req<{ available: boolean; provider?: string; verdict?: string; message?: string }>(
     `/api/v1/admin/reports/${encodeURIComponent(id)}/ai-review`, { method: 'POST' },
   ),
+  cases: (status = 'OPEN') => req<{
+    cases: {
+      _id: string;
+      userId: string;
+      kind: 'rapid-move-streak' | 'same-pair-ranked-wins' | 'loss-streak-sandbagging';
+      summary: string;
+      evidence: Record<string, unknown>;
+      status: string;
+      resolution?: string;
+      createdAt: string;
+    }[];
+  }>(`/api/v1/admin/cases?status=${encodeURIComponent(status)}`),
+  caseResolve: (id: string, status: string, resolution: string) => req<{ ok: boolean }>(
+    `/api/v1/admin/cases/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify({ status, resolution }) },
+  ),
   billing: () => req<{
     provider: string; checkoutReady: boolean; reason: string;
     recentEvents: { eventId: string; type: string; userId: string; createdAt: unknown }[];

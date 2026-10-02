@@ -6,19 +6,23 @@
   "description": "Cross-cutting end-to-end user journeys (HTTP inject + real sockets, in-process Mongo)",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "e2e": "npm run build && node --test \"dist/**/*.test.js\"",
-    "load": "npm run build && node dist/load/soak.js",    "test": "npm run e2e",
+    "e2e": "npm run build && node --test \"dist/e2e/**/*.test.js\"",
+    "load": "npm run build && node dist/load/soak.js",
+    "test": "npm run e2e",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "tsc --noEmit -p tsconfig.json --noUnusedLocals --noUnusedParameters"
+    "lint": "tsc --noEmit -p tsconfig.json --noUnusedLocals --noUnusedParameters",
+    "e2e:browser": "npm run build && node --test \"dist/browser/**/*.test.js\"",
+    "e2e:all": "npm run build && node --test \"dist/e2e/**/*.test.js\" \"dist/browser/**/*.test.js\""
   },
   "dependencies": {
     "mongodb-memory-server": "^11.3.0",
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
+    "@types/node": "^20.16.0",
     "fastify": "^5.2.0",
+    "playwright": "^1.63.0",
     "socket.io": "^4.7.5",
-    "typescript": "^5.6.3",
-    "@types/node": "^20.16.0"
+    "typescript": "^5.6.3"
   }
 }

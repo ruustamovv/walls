@@ -31,14 +31,17 @@ export async function settleMultiGame(g: MultiGameRecord): Promise<void> {
       const prefs = await settings.get(uid).catch(() => null);
       if (prefs !== null && !prefs.notifyResults) continue;
       const place = g.placement.indexOf(seat) + 1;
-      await notifs.create({
-        userId: uid,
-        kind: 'result',
-        title: place === 1
+      // Team games notify the whole winning side, not just the finisher.
+      const winningTeam = g.state.winningTeam;
+      const wonTeam = g.teamMode && winningTeam !== null && (g.state.teamOf ?? [])[seat] === winningTeam;
+      const title = g.teamMode
+        ? wonTeam
+          ? `Your team won the ${g.state.players}-player ${g.timeControlId} game`
+          : `Your team lost the ${g.state.players}-player ${g.timeControlId} game`
+        : place === 1
           ? `You won your ${g.state.players}-player ${g.timeControlId} game`
-          : `You finished #${place} of ${g.state.players} (${g.timeControlId})`,
-        body: g.id,
-      }).catch(() => undefined);
+          : `You finished #${place} of ${g.state.players} (${g.timeControlId})`;
+      await notifs.create({ userId: uid, kind: 'result', title, body: g.id }).catch(() => undefined);
     }
 
     const { trackEvent } = await import('../../database/mongodb/repositories/ops.repository.js');

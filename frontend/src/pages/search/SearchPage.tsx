@@ -66,14 +66,6 @@ export default function SearchPage() {
             )}
           </Card>
           <Card>
-            <h3 className="font-display" style={{ margin: '0 0 8px' }}>Tournaments</h3>
-            {data.tournaments.length === 0 ? <p style={{ color: 'var(--muted)', margin: 0 }}>—</p> : (
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
-                {data.tournaments.map((t) => (<li key={t.id}><Link to={`/tournaments/${t.id}`}>{t.title}</Link></li>))}
-              </ul>
-            )}
-          </Card>
-          <Card>
             <h3 className="font-display" style={{ margin: '0 0 8px' }}>Clubs</h3>
             {data.clubs.length === 0 ? <p style={{ color: 'var(--muted)', margin: 0 }}>—</p> : (
               <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>

@@ -2,8 +2,10 @@
  * Multiplayer engine package (2–6 seats). The classic 2P core is untouched.
  */
 export {
+  CHAOS_ROTATION_PLIES,
   MULTI_PRESETS,
   MULTI_RULES_VERSION,
+  SIEGE_WALL_BONUS,
   presetForPlayers,
   type MultiAction,
   type MultiConfig,
@@ -24,10 +26,19 @@ export {
   hashMultiState,
   isMultiGameOver,
   replayMultiGame,
+  seatTeams,
   serializeMultiState,
+  teamMates,
   validateMultiMove,
   type MultiApplyResult,
 } from './game.js';
+export {
+  FOG_RULES_VERSION,
+  fogMap,
+  hiddenWallCount,
+  pawnsAdjacent,
+  visibleWalls,
+} from './fog.js';
 export { chooseMultiBotAction, MULTI_BOT_DEFAULT, type MultiBotOpts } from './bots.js';
 export {
   gradeMultiAttempt,

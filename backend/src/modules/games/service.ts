@@ -59,6 +59,8 @@ export interface GameRecord {
   visibility: GameVisibility;
   /** Full action history for replays / review / what-if. */
   actions: Action[];
+  /** Server timestamp (ms) per applied action — timing-signal evidence (FRP-002). */
+  moveTimes: number[];
   /** Winning seat once finished (timeout awards the side with time left). */
   winnerSeat: 0 | 1 | null;
   finishReason: FinishReason;
@@ -132,6 +134,7 @@ export class GamesService {
       mode: input.mode ?? 'ranked',
       visibility: input.visibility ?? 'public',
       actions: [],
+      moveTimes: [],
       winnerSeat: null,
       finishReason: null,
       drawOfferBy: null,
@@ -218,6 +221,7 @@ export class GamesService {
     const result = applyMove(g.state, action);
     g.state = result.state;
     g.actions.push(action);
+    g.moveTimes.push(Date.now());
     if (opts.actionId !== undefined) {
       const seen = this.seenActionIds.get(gameId) ?? [];
       seen.push(opts.actionId);

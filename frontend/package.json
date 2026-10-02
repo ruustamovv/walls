@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "tsc --noEmit -p tsconfig.json",
-    "test": "echo \"frontend unit tests: TODO (vitest planned Phase 02)\" && exit 0"
+    "test": "echo \"frontend unit tests: TODO (vitest planned Phase 02)\" && exit 0",
+    "start": "vite preview --host 127.0.0.1 --port 5173 --strictPort"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.0",

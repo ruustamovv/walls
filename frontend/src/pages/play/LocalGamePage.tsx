@@ -52,6 +52,7 @@ export default function LocalGamePage() {
           style: `Counter to your game (cf. ${p.baseName})`, description: p.explanation,
           weights: { ...p.weights }, wallCandidates: p.wallCandidates, noise: p.noise,
           wallBias: p.wallBias, replySearch: p.replySearch, budgetMs: p.budgetMs,
+          depth: 2, maxNodes: 500,
         });
       }).catch(() => undefined);
     });
@@ -76,6 +77,7 @@ export default function LocalGamePage() {
           style: 'Plays like you', description: p.explanation,
           weights: { ...p.weights }, wallCandidates: p.wallCandidates, noise: p.noise,
           wallBias: p.wallBias, replySearch: p.replySearch, budgetMs: p.budgetMs,
+          depth: 2, maxNodes: 400,
         });
       }).catch(() => undefined);
     });

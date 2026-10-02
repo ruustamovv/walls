@@ -23,6 +23,15 @@ function getSessionId(req: { cookies: Record<string, string | undefined>; header
   return null;
 }
 
+/** Signed-in user or null (used by fog-aware reads). */
+async function optionalUserId(req: FastifyRequest): Promise<string | null> {
+  try {
+    return await requireUserId(req);
+  } catch {
+    return null;
+  }
+}
+
 async function requireUserId(req: FastifyRequest): Promise<string> {
   const cookies = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies ?? {};
   const sid = getSessionId({ cookies, headers: req.headers });
@@ -38,6 +47,11 @@ const CreateMultiSchema = z.object({
   wallsPerPlayer: z.number().int().min(0).max(30).optional(),
   timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
   visibility: z.enum(['public', 'friends', 'unlisted', 'private']).optional(),
+  continueForPlacement: z.boolean().optional(),
+  teamMode: z.boolean().optional(),
+  fog: z.boolean().optional(),
+  chaos: z.boolean().optional(),
+  siege: z.boolean().optional(),
 });
 
 const MultiJoinSchema = z.object({
@@ -58,6 +72,11 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
       ...(parsed.data.wallsPerPlayer !== undefined ? { wallsPerPlayer: parsed.data.wallsPerPlayer } : {}),
       timeControl: parsed.data.timeControl,
       ...(parsed.data.visibility !== undefined ? { visibility: parsed.data.visibility } : {}),
+      ...(parsed.data.continueForPlacement !== undefined ? { continueForPlacement: parsed.data.continueForPlacement } : {}),
+      ...(parsed.data.teamMode !== undefined ? { teamMode: parsed.data.teamMode } : {}),
+      ...(parsed.data.fog !== undefined ? { fog: parsed.data.fog } : {}),
+      ...(parsed.data.chaos !== undefined ? { chaos: parsed.data.chaos } : {}),
+      ...(parsed.data.siege !== undefined ? { siege: parsed.data.siege } : {}),
     });
     void persistMultiGameCreated(g).catch(() => undefined);
     return multiGamesService.snapshot(g);
@@ -65,13 +84,17 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
 
   /** @openapi GET /api/v1/multi/games/:id — snapshot (ticks server clock). */
   app.get('/api/v1/multi/games/:id', async (req) => {
+    const userId = await optionalUserId(req).catch(() => null);
     const { id } = req.params as { id: string };
     const g = multiGamesService.get(id);
     multiGamesService.tickClock(g, Date.now());
     if (g.status === 'finished' && !g.settled) {
       void settleMultiGame(g).catch(() => undefined);
     }
-    return multiGamesService.snapshot(g);
+    // Fog (MLT-009): project to the caller's seat so REST polling gets the
+    // same view the socket sends.
+    const seat = userId === null ? null : g.playerIds.indexOf(userId);
+    return multiGamesService.snapshot(g, seat === -1 ? null : seat);
   });
 
   /** @openapi POST /api/v1/multi/games/:id/join — take an open seat. */
@@ -82,7 +105,7 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
     if (g.status === 'active') {
       void persistMultiGameCreated(g).catch(() => undefined);
     }
-    return multiGamesService.snapshot(g);
+    return multiGamesService.snapshot(g, g.playerIds.indexOf(userId));
   });
 
   /** @openapi POST /api/v1/multi/games/:id/move — pawn move or wall. */
@@ -99,7 +122,7 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
     if (g.status === 'finished' && !g.settled) {
       await settleMultiGame(g);
     }
-    return multiGamesService.snapshot(g);
+    return multiGamesService.snapshot(g, g.playerIds.indexOf(userId));
   });
 
   /** @openapi POST /api/v1/multi/games/:id/resign — concede (placement by distance). */
@@ -110,7 +133,7 @@ export async function registerMulti(app: FastifyInstance): Promise<void> {
     if (!g.settled) {
       await settleMultiGame(g);
     }
-    return multiGamesService.snapshot(g);
+    return multiGamesService.snapshot(g, g.playerIds.indexOf(userId));
   });
 
   /** @openapi GET /api/v1/multi/games/:id/meta — seat identities for HUD. */

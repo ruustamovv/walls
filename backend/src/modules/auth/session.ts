@@ -4,6 +4,7 @@
  * Production wiring: pass a Redis-backed SessionStore. Until then the
  * default InMemorySessionStore keeps the API offline-friendly with TTL sweeps.
  */
+import { logger } from '../../common/logging/logger.js';
 
 export interface SessionRecord {
   id: string;
@@ -74,10 +75,22 @@ function randomId(): string {
 
 /**
  * Redis-backed sessions: shared across backend instances, TTL-enforced by
- * Redis itself (SET EX). Falls back to memory when Redis is unreachable —
- * see createSessionStore().
+ * Redis itself (SET EX).
+ *
+ * A Redis outage must not silently break auth: the Redis client object can
+ * exist while being unreachable, so `save()` used to throw *after* the route
+ * had already returned 200 with a session cookie the server could never read
+ * back ("Invalid session" on every later request). Every operation now falls
+ * back to a process-local mirror, which keeps single-instance dev usable and
+ * logs loudly instead of failing invisibly. Multi-instance deployments still
+ * require Redis — the mirror is per-process.
  */
 export class RedisSessionStore implements SessionStore {
+  /** Process-local mirror used only while Redis is unreachable. */
+  private readonly mirror = new InMemorySessionStore();
+
+  private warned = false;
+
   private key(id: string): string {
     const prefix = process.env['REDIS_PREFIX'] ?? 'pn';
     return `${prefix}:sess:${id}`;
@@ -97,36 +110,61 @@ export class RedisSessionStore implements SessionStore {
     }
   }
 
+  /** Log the first Redis failure of this store: loud, but never a 500. */
+  private degraded(op: string, err: unknown): void {
+    if (this.warned) return;
+    this.warned = true;
+    logger.warn(
+      { err: err instanceof Error ? err.message : String(err), op },
+      'Redis session op failed — using process-local sessions (single-instance only)',
+    );
+  }
+
   async save(session: SessionRecord): Promise<void> {
     const r = await this.redis();
-    if (r === null) throw new Error('redis unavailable');
+    if (r === null) {
+      this.degraded('save', new Error('redis unavailable'));
+      return this.mirror.save(session);
+    }
     const ttlSec = Math.max(60, Math.floor((session.expiresAt - Date.now()) / 1000));
-    await r.set(this.key(session.id), JSON.stringify(session), 'EX', ttlSec);
+    try {
+      await r.set(this.key(session.id), JSON.stringify(session), 'EX', ttlSec);
+    } catch (err) {
+      this.degraded('save', err);
+      return this.mirror.save(session);
+    }
+    await this.mirror.save(session);
   }
 
   async get(id: string): Promise<SessionRecord | null> {
     const r = await this.redis();
-    if (r === null) throw new Error('redis unavailable');
-    const raw = await r.get(this.key(id));
-    if (raw === null) return null;
+    if (r === null) {
+      this.degraded('get', new Error('redis unavailable'));
+      return this.mirror.get(id);
+    }
     try {
+      const raw = await r.get(this.key(id));
+      if (raw === null) return this.mirror.get(id);
       const s = JSON.parse(raw) as SessionRecord;
       if (s.expiresAt <= Date.now()) return null;
       return s;
-    } catch {
-      return null;
+    } catch (err) {
+      this.degraded('get', err);
+      return this.mirror.get(id);
     }
   }
 
   async delete(id: string): Promise<void> {
+    await this.mirror.delete(id);
     const r = await this.redis();
     if (r === null) return;
     await r.del(this.key(id)).catch(() => undefined);
   }
 
   async deleteByUser(userId: string): Promise<number> {
+    const mirrored = await this.mirror.deleteByUser(userId);
     const r = await this.redis();
-    if (r === null) return 0;
+    if (r === null) return mirrored;
     // Sessions are keyed by id; scan values to match the owner.
     let cursor = '0';
     let removed = 0;
@@ -149,7 +187,7 @@ export class RedisSessionStore implements SessionStore {
       }
       if (cursor === '0') break;
     }
-    return removed;
+    return removed + mirrored;
   }
 }
 

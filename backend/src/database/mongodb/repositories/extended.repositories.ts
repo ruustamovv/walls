@@ -164,7 +164,7 @@ export class PuzzleRepository {
     return raw === null ? null : (withDomainId<PuzzleDoc>(raw as Record<string, unknown>));
   }
 
-  async upsertDaily(input: { puzzleId: string; date: string; prompt: string; position: unknown; solution: unknown; needGain: number }): Promise<PuzzleDoc> {
+  async upsertDaily(input: { puzzleId: string; date: string; prompt: string; position: unknown; solution: unknown; needGain: number; solutionGain?: number; difficulty?: string; alternatives?: number; taste?: { sharp: number; tense: number }; tasteSource?: string }): Promise<PuzzleDoc> {
     await this.db.collection(COLLECTIONS.puzzles).updateOne(
       { puzzleId: input.puzzleId },
       { $setOnInsert: { ...input, rating: 1200, createdAt: new Date() } },

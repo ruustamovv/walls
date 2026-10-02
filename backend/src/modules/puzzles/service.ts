@@ -8,13 +8,20 @@
  * from the engine (attempts simply aren't recorded — degraded, honest).
  */
 import {
+  curatedDaily,
   dailyPuzzle,
   gradeAttempt,
+  seededPuzzlePool,
+  selectPuzzle,
   todayKey,
+  DEFAULT_TASTE,
   type DailyPuzzle,
+  type PuzzleDifficulty,
+  type PuzzleTaste,
 } from '../../../../engine/typescript/dist/puzzles/index.js';
 import { getMongoDb } from '../../database/mongodb/client.js';
 import { PuzzleRepository } from '../../database/mongodb/repositories/extended.repositories.js';
+import type { PuzzleDoc } from '../../database/mongodb/types.js';
 import { logger } from '../../common/logging/logger.js';
 
 export interface DailyPuzzleView {
@@ -27,6 +34,12 @@ export interface DailyPuzzleView {
   walls: { r: number; c: number; orientation: 'h' | 'v' }[];
   wallsRemaining: [number, number];
   needGain: number;
+  /** Daily-only: how demanding the position is (absent for personal puzzles). */
+  difficulty?: PuzzleDifficulty;
+  /** Daily-only: walls that reach the bar (1 = a single answer exists). */
+  alternatives?: number;
+  /** Daily-only: 'ai' when today's taste came from the model. */
+  tasteSource?: 'ai' | 'default';
 }
 
 export interface AttemptResult {
@@ -36,11 +49,13 @@ export interface AttemptResult {
   legal: boolean;
   reason?: string;
   solution?: { r: number; c: number; orientation: 'h' | 'v' };
+  /** Reference answer's gain — the target to beat (absent for legacy docs). */
+  solutionGain?: number;
   streak: number;
   solvedToday: boolean;
 }
 
-function toView(p: DailyPuzzle): DailyPuzzleView {
+function toView(p: DailyPuzzle, tasteSource: 'ai' | 'default'): DailyPuzzleView {
   return {
     puzzleId: p.puzzleId,
     date: p.date,
@@ -51,35 +66,113 @@ function toView(p: DailyPuzzle): DailyPuzzleView {
     walls: p.walls,
     wallsRemaining: p.wallsRemaining,
     needGain: p.needGain,
+    difficulty: p.difficulty ?? 'classic',
+    alternatives: p.alternatives ?? 1,
+    tasteSource,
   };
 }
 
-async function cachedDaily(date: string): Promise<DailyPuzzle> {
-  const generated = dailyPuzzle(date);
+/** Rebuild a puzzle from its cached document — no regeneration cost. */
+function docToPuzzle(doc: PuzzleDoc): DailyPuzzle | null {
+  const pos = doc.position as {
+    size?: number; turn?: number; pawns?: [{ r: number; c: number }, { r: number; c: number }];
+    walls?: { r: number; c: number; orientation: 'h' | 'v' }[]; wallsRemaining?: [number, number];
+  } | undefined;
+  const sol = doc.solution as { r: number; c: number; orientation: 'h' | 'v' } | undefined;
+  if (doc.puzzleId === undefined || doc.date === undefined || doc.prompt === undefined) return null;
+  if (pos?.size === undefined || pos.turn === undefined || pos.pawns === undefined) return null;
+  if (pos.walls === undefined || pos.wallsRemaining === undefined || sol === undefined) return null;
+  if (typeof doc.needGain !== 'number') return null;
+  return {
+    puzzleId: doc.puzzleId,
+    date: doc.date,
+    prompt: doc.prompt,
+    size: pos.size,
+    turn: pos.turn as 0 | 1,
+    pawns: pos.pawns,
+    walls: pos.walls,
+    wallsRemaining: pos.wallsRemaining,
+    solution: sol,
+    needGain: doc.needGain,
+    solutionGain: typeof doc.solutionGain === 'number' ? doc.solutionGain : doc.needGain,
+    ...(typeof doc.difficulty === 'string' ? { difficulty: doc.difficulty as PuzzleDifficulty } : {}),
+    ...(typeof doc.alternatives === 'number' ? { alternatives: doc.alternatives } : {}),
+  };
+}
+
+/**
+ * Today's AI taste (PUZ-003). Order: cached document → configured model →
+ * deterministic default. The model only picks {sharp, tense} weights over
+ * engine-graded candidates; one call per day at most (then cached in the doc).
+ */
+async function tasteFor(
+  date: string,
+  pool: { puzzle: DailyPuzzle; quality: { solutionGain: number; uniqueGap: number; tension: number } }[],
+): Promise<{ taste: PuzzleTaste; source: 'ai' | 'default' }> {
+  if (pool.length === 0) return { taste: DEFAULT_TASTE, source: 'default' };
+  const { activeProvider } = await import('../ai/provider.js');
+  const provider = activeProvider();
+  if (provider === null) return { taste: DEFAULT_TASTE, source: 'default' };
+  try {
+    const { proposePuzzleTaste } = await import('../ai/complete.js');
+    const res = await proposePuzzleTaste(`daily-puzzle:${date}`, provider.id, {
+      date,
+      candidates: pool.map((e) => ({ gain: e.quality.solutionGain, gap: e.quality.uniqueGap, tension: e.quality.tension })),
+    });
+    if (!res.ok) return { taste: DEFAULT_TASTE, source: 'default' };
+    return { taste: res.taste, source: 'ai' };
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'puzzle taste fell back to default');
+    return { taste: DEFAULT_TASTE, source: 'default' };
+  }
+}
+
+async function cachedDaily(date: string): Promise<{ puzzle: DailyPuzzle; tasteSource: 'ai' | 'default' }> {
+  const puzzleId = `daily-${date}`;
+  const generated = (): DailyPuzzle => curatedDaily(date);
   try {
     const db = await getMongoDb();
     const repo = new PuzzleRepository(db);
-    const doc = await repo.upsertDaily({
-      puzzleId: generated.puzzleId,
-      date,
-      prompt: generated.prompt,
-      position: {
-        size: generated.size,
-        turn: generated.turn,
-        pawns: generated.pawns,
-        walls: generated.walls,
-        wallsRemaining: generated.wallsRemaining,
-      },
-      solution: generated.solution,
-      needGain: generated.needGain,
-    });
-    // The cache only proves the puzzle was issued; the deterministic
-    // generator stays the source of truth for grading.
-    void (doc as unknown as Record<string, unknown>)['position'];
-    return generated;
+    // Fast path: today's document already fixes the puzzle for everyone.
+    const existing = await repo.findByPuzzleId(puzzleId);
+    if (existing !== null) {
+      const rebuilt = docToPuzzle(existing);
+      if (rebuilt !== null) {
+        return { puzzle: rebuilt, tasteSource: existing.tasteSource === 'ai' ? 'ai' : 'default' };
+      }
+    }
+    // Slow path (once per day): grade a pool, let the AI steer selection.
+    const pool = seededPuzzlePool(date, puzzleId, date, 4);
+    const { taste, source } = await tasteFor(date, pool);
+    const puzzle = pool.length === 0 ? dailyPuzzle(date) : selectPuzzle(pool, taste);
+    try {
+      const input: Parameters<PuzzleRepository['upsertDaily']>[0] = {
+        puzzleId: puzzle.puzzleId,
+        date,
+        prompt: puzzle.prompt,
+        position: {
+          size: puzzle.size,
+          turn: puzzle.turn,
+          pawns: puzzle.pawns,
+          walls: puzzle.walls,
+          wallsRemaining: puzzle.wallsRemaining,
+        },
+        solution: puzzle.solution,
+        needGain: puzzle.needGain,
+        solutionGain: puzzle.solutionGain,
+        taste,
+        tasteSource: source,
+      };
+      if (puzzle.difficulty !== undefined) input.difficulty = puzzle.difficulty;
+      if (puzzle.alternatives !== undefined) input.alternatives = puzzle.alternatives;
+      await repo.upsertDaily(input);
+    } catch (err) {
+      logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'daily puzzle cache miss (degraded)');
+    }
+    return { puzzle, tasteSource: source };
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'daily puzzle cache miss (degraded)');
-    return generated;
+    return { puzzle: generated(), tasteSource: 'default' };
   }
 }
 
@@ -107,18 +200,29 @@ export function streakFrom(datesDesc: string[], today: string): number {
 
 export async function getDailyPuzzle(date: string = todayKey()): Promise<DailyPuzzle> {
   try {
-    return await cachedDaily(date);
+    return (await cachedDaily(date)).puzzle;
   } catch {
     // Generator throws only when no choke found in budget — fall back to
     // yesterday (also deterministic), then give up loudly.
     const y = new Date(`${date}T00:00:00Z`);
     y.setUTCDate(y.getUTCDate() - 1);
-    return cachedDaily(y.toISOString().slice(0, 10));
+    return (await cachedDaily(y.toISOString().slice(0, 10))).puzzle;
   }
 }
 
-export function publicView(p: DailyPuzzle): DailyPuzzleView {
-  return toView(p);
+export function publicView(p: DailyPuzzle, tasteSource: 'ai' | 'default' = 'default'): DailyPuzzleView {
+  return toView(p, tasteSource);
+}
+
+/** Puzzle plus the taste provenance for the public route. */
+export async function getDailyPuzzleView(date: string = todayKey()): Promise<{ puzzle: DailyPuzzle; tasteSource: 'ai' | 'default' }> {
+  try {
+    return await cachedDaily(date);
+  } catch {
+    const y = new Date(`${date}T00:00:00Z`);
+    y.setUTCDate(y.getUTCDate() - 1);
+    return cachedDaily(y.toISOString().slice(0, 10));
+  }
 }
 
 // ── Personal mistake puzzles ─────────────────────────────
@@ -305,7 +409,7 @@ export async function attemptDaily(
   wall: { r: number; c: number; orientation: 'h' | 'v' },
   date: string = todayKey(),
 ): Promise<AttemptResult> {
-  const puzzle = await getDailyPuzzle(date);
+  const { puzzle } = await cachedDaily(date);
   const verdict = gradeAttempt(puzzle, wall);
   try {
     const db = await getMongoDb();
@@ -322,6 +426,7 @@ export async function attemptDaily(
     legal: verdict.legal,
     ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
     ...(verdict.solved ? { solution: { ...puzzle.solution } } : {}),
+    solutionGain: puzzle.solutionGain,
     streak,
     solvedToday,
   };

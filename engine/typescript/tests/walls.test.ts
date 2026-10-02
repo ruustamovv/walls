@@ -51,16 +51,36 @@ describe('wall rules', () => {
   });
 
   it('wall closing the last route is rejected', () => {
-    // Four 'h' walls block rows 4/5 for cols 0..7; col 8 stays open.
-    const walls = [wall(4, 0, 'h'), wall(4, 2, 'h'), wall(4, 4, 'h'), wall(4, 6, 'h')];
-    const s = makeState(9, { walls, turn: 1, wallsRemaining: [6, 6] });
-    // Sanity: gap at col 8 keeps both routes alive.
-    assert.equal(validateWall(s, 1, wall(0, 0, 'v')).ok, true);
-    // Closing wall covers cols 7,8 -> no route for either pawn.
-    const v = validateWall(s, 1, wall(4, 7, 'h'));
+    // Corner pocket with exactly one exit: h(0,0) blocks the downward steps
+    // under columns 0-1, v(0,2) blocks the step (0,2)->(0,3). Pawn 1 is forced
+    // down column 2 and still reaches its goal side (row 0) via column 2.
+    const s = makeState(9, {
+      pawns: [{ r: 0, c: 0 }, { r: 8, c: 8 }],
+      walls: [wall(0, 0, 'h'), wall(0, 2, 'v')],
+      turn: 0,
+      wallsRemaining: [6, 6],
+    });
+    // Sanity: a route exists and a harmless wall far away is accepted.
+    assert.equal(validateWall(s, 0, wall(6, 6, 'v')).ok, true);
+    // Closing wall cuts (0,1)->(0,2) and strands pawn 1 in the corner.
+    const v = validateWall(s, 0, wall(0, 1, 'v'));
     assert.equal(v.ok, false);
     assert.equal(v.reason, 'blocks_path');
-    assert.throws(() => applyMove(s, { type: 'wall', wall: wall(4, 7, 'h') }), /blocks_path/);
+    assert.throws(() => applyMove(s, { type: 'wall', wall: wall(0, 1, 'v') }), /blocks_path/);
+  });
+
+  it('a full-width barrier can never be completed by stacking sticks', () => {
+    // Four 2-cell pieces tile columns 0-7; column 8 can only be covered by a
+    // piece at c=7, which would overlap its neighbour. That is correct
+    // Quoridor geometry — you cannot seal a row band by doubling up.
+    const s0 = createGame({ size: 9, wallsPerPlayer: 10 });
+    let s = s0;
+    for (const c of [0, 2, 4, 6]) {
+      s = applyMove(s, { type: 'wall', wall: wall(4, c, 'h') }).state;
+    }
+    assert.equal(validateWall(s, 0, wall(4, 7, 'h')).reason, 'overlapping_wall');
+    // And no path was sealed by the four-piece barrier.
+    assert.equal(validateWall(s, 0, wall(6, 3, 'v')).ok, true);
   });
 
   it('valid wall with a detour is accepted and consumes inventory', () => {
@@ -121,18 +141,37 @@ describe('wall geometry is canonically two cells', () => {
     assert.equal(isBlockedBetween({ r: 4, c: 4 }, { r: 5, c: 4 }, walls), false);
   });
 
-  it('adjacent collinear walls are two separate objects consuming two walls', () => {
+  it('collinear neighbours two apart form a clean 4-cell barrier', () => {
+    // A piece is two cells long, so the next collinear slot is 2 away.
     const s0 = createGame({ size: 9, wallsPerPlayer: 10 });
-    assert.equal(validateWall(s0, 0, wall(4, 4, 'h')).ok, true);
-    assert.equal(validateWall(s0, 0, wall(4, 5, 'h')).ok, true);
-    const s1 = applyMove(s0, { type: 'wall', wall: wall(4, 4, 'h') }).state;
-    const s2 = applyMove(s1, { type: 'wall', wall: wall(4, 5, 'h') }).state;
+    assert.equal(validateWall(s0, 0, wall(4, 2, 'h')).ok, true);
+    assert.equal(validateWall(s0, 0, wall(4, 4, 'h')).ok, true, 'end-to-end neighbour is legal');
+    const s1 = applyMove(s0, { type: 'wall', wall: wall(4, 2, 'h') }).state;
+    const s2 = applyMove(s1, { type: 'wall', wall: wall(4, 4, 'h') }).state;
     assert.equal(s2.walls.length, 2);
-    assert.deepEqual(s2.wallsRemaining, [9, 9]);
-    // Each wall still blocks its own two cells (3-cell barrier total).
-    assert.equal(isBlockedBetween({ r: 4, c: 4 }, { r: 5, c: 4 }, s2.walls), true);
-    assert.equal(isBlockedBetween({ r: 4, c: 6 }, { r: 5, c: 6 }, s2.walls), true);
-    assert.equal(isBlockedBetween({ r: 4, c: 7 }, { r: 5, c: 7 }, s2.walls), false);
+    assert.deepEqual(s2.wallsRemaining, [9, 9], 'two pieces, two walls consumed');
+    // Together they block four distinct columns.
+    for (const c of [2, 3, 4, 5]) {
+      assert.equal(isBlockedBetween({ r: 4, c }, { r: 5, c }, s2.walls), true, `column ${c} blocked`);
+    }
+    assert.equal(isBlockedBetween({ r: 4, c: 6 }, { r: 5, c: 6 }, s2.walls), false, 'no bleed past the ends');
+    assert.equal(isBlockedBetween({ r: 4, c: 1 }, { r: 5, c: 1 }, s2.walls), false);
+  });
+
+  it('collinear half-overlap is rejected: a stick never sits on top of another', () => {
+    const s0 = createGame({ size: 9, wallsPerPlayer: 10 });
+    // h(4,4) covers columns 4-5, so h(4,5) would overlap it by one cell.
+    const s1 = applyMove(s0, { type: 'wall', wall: wall(4, 4, 'h') }).state;
+    assert.equal(validateWall(s1, 0, wall(4, 5, 'h')).reason, 'overlapping_wall');
+    assert.equal(validateWall(s1, 0, wall(4, 3, 'h')).reason, 'overlapping_wall');
+    assert.equal(validateWall(s1, 0, wall(4, 6, 'h')).ok, true, 'two away is still fine');
+
+    // Same rule vertically.
+    const v0 = createGame({ size: 9, wallsPerPlayer: 10 });
+    const v1 = applyMove(v0, { type: 'wall', wall: wall(4, 4, 'v') }).state;
+    assert.equal(validateWall(v1, 0, wall(5, 4, 'v')).reason, 'overlapping_wall');
+    assert.equal(validateWall(v1, 0, wall(3, 4, 'v')).reason, 'overlapping_wall');
+    assert.equal(validateWall(v1, 0, wall(6, 4, 'v')).ok, true);
   });
 
   it('T-junction and L-junction placements are legal (touching, not overlapping)', () => {

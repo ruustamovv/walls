@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button, Card, Tabs, TextInput, Avatar, Badge } from '../../components/ui/primitives.js';
 import { setThemeNow } from '../../hooks/useTheme.js';
-import { useSettings, type BoardTheme, type LangChoice, type PawnSet, type ThemeChoice } from '../../stores/settings.js';
+import { useSettings, type BoardTheme, type PawnSet, type ThemeChoice } from '../../stores/settings.js';
 import { playSound } from '../../lib/sound.js';
 import { api } from '../../lib/api.js';
 import { useSession } from '../../stores/session.js';
@@ -92,8 +92,8 @@ const PAWN_SETS: PawnSet[] = ['classic', 'ring'];
 
 export default function SettingsPage() {
   const {
-    theme, sound, volume, showCoords, boardTheme, pawnSet, confirmWall, language,
-    setTheme, setSound, setVolume, setShowCoords, setBoardTheme, setPawnSet, setConfirmWall, setLanguage,
+    theme, sound, volume, showCoords, boardTheme, pawnSet, confirmWall,
+    setTheme, setSound, setVolume, setShowCoords, setBoardTheme, setPawnSet, setConfirmWall,
   } = useSettings();
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 640 }}>
@@ -142,13 +142,6 @@ export default function SettingsPage() {
           control={<Toggle on={showCoords} onFlip={() => setShowCoords(!showCoords)} label="Board coordinates" />}
         />
         <FramesRow />
-      </Card>
-      <Card>
-        <h3 className="font-display" style={{ margin: '0 0 4px' }}>Language</h3>
-        <Tabs tabs={(['en', 'ru', 'uz'] as LangChoice[])} active={language} onChange={setLanguage} />
-        <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0' }}>
-          Shell navigation is translated; game content stays English-first for now.
-        </p>
       </Card>
       <AccountCard />
       <Card>

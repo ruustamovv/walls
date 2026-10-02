@@ -43,25 +43,52 @@ coaching, tournament-grade admin.
 
 ## Quickstart
 
-Prereqs: Node ≥ 20, `pnpm@12`, Python ≥ 3.11, Docker (for mongodb/redis).
+Prereqs: Node ≥ 20, `pnpm@12`. Redis is optional locally (see below).
 
 ```bash
-# 1. install
-pnpm install:all
+# 1. install + build engine + verify everything
+pnpm setup
 
-# 2. env
-cp .env.example .env
-node scripts/setup/env-check.mjs   # or: pnpm env:check
+# 2. env (only if you do not have .env yet)
+cp .env.example .env      # then paste MONGODB_URI + 3 secrets
+pnpm doctor               # tells you exactly what is missing or unreachable
+```
 
-# 3. services
-docker compose up -d mongodb redis
+`pnpm doctor` checks `.env`, the engine build, MongoDB, Redis, and ports
+3000/5173/5174, then prints the run commands. Re-run it any time — it is the
+fastest way to find out why the server will not boot.
 
-# 4. dev servers (each in its own shell, or one `pnpm dev`)
-pnpm dev:backend
-pnpm dev:frontend
-pnpm dev:engine
+### Running
 
-# 5. tests
+```bash
+pnpm dev          # engine build, then backend :3000 + frontend :5173 + admin :5174
+pnpm start        # production build + preview servers (all three)
+
+# single service
+pnpm dev:backend  # http://localhost:3000
+pnpm dev:frontend # http://localhost:5173
+pnpm dev:admin    # http://localhost:5174
+```
+
+`pnpm dev` builds the engine first (`predev`) — the backend imports
+`engine/typescript/dist`, so a stale engine build breaks the backend at boot.
+`pnpm start` builds everything first (`prestart`).
+
+Health probes on the backend: `/health` (liveness), `/ready` (MongoDB + Redis),
+`/live`.
+
+### Services
+
+- **MongoDB** — required. Either local (`docker compose up -d mongodb`) or an
+  Atlas URI in `MONGODB_URI`. Collections and indexes are created on boot
+  (`ensureIndexes`, idempotent).
+- **Redis** — optional but recommended. Without it the server still boots:
+  sessions fall back to a process-local store (single instance only) and
+  matchmaking / presence / queues run **degraded**. Fix with
+  `docker run -d -p 6379:6379 redis:7` or point `REDIS_URL` at a real instance.
+
+```bash
+# 3. tests
 pnpm test                # all workspaces
 pnpm --filter ./engine/typescript test
 python -m pytest engine/python -q  # once implemented
@@ -93,6 +120,8 @@ Validate: `pnpm env:check`. Bootstrap owner: `pnpm owner:create`.
 | Area | Doc |
 |------|-----|
 | Rules (goal race, move-or-wall, jumps, no-seal, clocks, modes) | `docs/game-rules/rules.md` |
+| Special party modes (Team 2v2 real; Fog/Chaos/Siege status) | `docs/game-rules/special-modes.md` |
+| Multiplayer board scaling + wall economy | `docs/game-rules/multi-balance.md` |
 | Server-authoritative design | `docs/architecture/overview.md` |
 | Realtime / Redis fan-out | `docs/architecture/realtime.md` |
 | MongoDB + Redis architecture | `docs/architecture/database.md` |

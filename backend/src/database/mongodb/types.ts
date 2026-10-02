@@ -173,6 +173,15 @@ export interface PuzzleDoc {
   solution: unknown;
   rating: number;
   createdAt: Date;
+  puzzleId?: string;
+  date?: string;
+  position?: unknown;
+  needGain?: number;
+  solutionGain?: number;
+  difficulty?: string;
+  alternatives?: number;
+  taste?: { sharp: number; tense: number };
+  tasteSource?: string;
 }
 
 export type FriendRequestStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED';

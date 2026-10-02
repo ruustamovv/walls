@@ -222,12 +222,30 @@ function OnlineParty({ gameId }: { gameId: string }) {
                 {i === mySeat ? 'You' : nameOf(i)}
                 <span className="font-mono" style={{ color: snap.turn === i ? 'var(--ink)' : 'var(--muted)' }}>{formatClock(game.clocks[i] ?? 0)}</span>
                 <span style={{ color: 'var(--muted)' }}>▮ {snap.state.wallsRemaining[i] ?? 0}</span>
+                {snap.eliminated.includes(i) && <Badge tone="neutral">finished #{snap.placement.indexOf(i) + 1}</Badge>}
+              {snap.teamOf !== null && (
+                <Badge tone={snap.winningTeam === snap.teamOf[i] && done ? 'good' : 'info'}>
+                  {TEAM_LABELS[snap.teamOf[i]] ?? `Team ${snap.teamOf[i]}`}
+                </Badge>
+              )}
               </span>
             ))}
           </div>
           <div style={rotationStyle(rotation)}>
             <MultiBoard
-              state={{ ...snap.state, sides: snap.state.sides as ('N' | 'S' | 'E' | 'W')[] }}
+              state={{
+                ...snap.state,
+                sides: snap.state.sides as ('N' | 'S' | 'E' | 'W')[],
+                continueAfterWin: snap.continueForPlacement,
+                eliminated: snap.eliminated,
+                placement: snap.placement,
+                teamOf: snap.teamOf,
+                winningTeam: snap.winningTeam,
+                fog: snap.fog,
+                chaos: snap.chaos,
+                siege: snap.siege,
+                siegeHeadStart: 0,
+              }}
               humanSeats={mySeat === null ? [] : [mySeat]}
               interactive={mySeat !== null && game.connected && snap.status === 'active' && !done}
               onMove={game.sendMove}
@@ -292,6 +310,18 @@ function OnlineParty({ gameId }: { gameId: string }) {
             <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Details</h3>
             <div style={{ fontSize: 13, display: 'grid', gap: 4, color: 'var(--muted)' }}>
               <span>{snap.timeControlId} · casual · {snap.state.size}×{snap.state.size}</span>
+              <span>{snap.teamMode
+                ? `Team game — ${TEAM_LABELS[0]} seats 1+3 vs ${TEAM_LABELS[1]} seats 2+4; first pawn home wins for its team`
+                : snap.continueForPlacement
+                  ? 'Full placement race — every seat finishes'
+                  : 'First to the goal wins'}</span>
+              {snap.fog && (
+                <span title="Walls far from your pawn stay hidden until you get close.">
+                  Fog of war{snap.hiddenWalls > 0 ? ` · ${snap.hiddenWalls} wall${snap.hiddenWalls === 1 ? '' : 's'} out of sight` : ' · board clear around you'}
+                </span>
+              )}
+              {snap.chaos && <span>Chaos — walls rotate between seats</span>}
+              {snap.siege && <span>Siege — seat 1 has the wall advantage and a head start</span>}
               <span>Move {snap.moveCount}{myPlace !== null && myPlace > 0 ? ` · you #${myPlace}` : ''}</span>
               {winShare !== null && !done && (
                 <span title={`Estimated win share (${winShare.confidence} confidence)`}>
@@ -310,19 +340,88 @@ function OnlineParty({ gameId }: { gameId: string }) {
           perspective={null}
           moveCount={snap.moveCount}
           durationSec={Math.max(0, Math.round((snap.updatedAt - snap.createdAt) / 1000))}
-          title={mySeat !== null && myPlace !== null && myPlace > 0
-            ? (myPlace === 1 ? `You win the party! 🏆` : `You finished #${myPlace} of ${snap.players}`)
-            : `${nameOf(snap.winnerSeat ?? 0)} wins the party!`}
-          won={myPlace === 1}
+          title={snap.teamMode && snap.winningTeam !== null
+            ? (mySeat !== null && snap.teamOf?.[mySeat] === snap.winningTeam
+                ? `${TEAM_LABELS[snap.winningTeam]} wins! 🏆`
+                : `${TEAM_LABELS[snap.winningTeam]} wins this one`)
+            : mySeat !== null && myPlace !== null && myPlace > 0
+              ? (myPlace === 1 ? `You win the party! 🏆` : `You finished #${myPlace} of ${snap.players}`)
+              : `${nameOf(snap.winnerSeat ?? 0)} wins the party!`}
+          won={snap.teamMode && snap.winningTeam !== null
+            ? mySeat !== null && snap.teamOf?.[mySeat] === snap.winningTeam
+            : myPlace === 1}
           onRematch={undefined}
           onNewGame={() => navigate('/play')}
           onHome={() => navigate('/')}
         />
       )}
+      {done && snap.teamMode && snap.teamOf !== null && (
+        <Card style={{ maxWidth: 640 }}>
+          <h3 className="font-display" style={{ margin: '0 0 8px' }}>Team result</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+                <th style={{ padding: '4px 8px' }}>Team</th>
+                <th style={{ padding: '4px 8px' }}>Players</th>
+                <th style={{ padding: '4px 8px' }}>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {TEAM_LABELS.map((label, team) => {
+                const seats = snap.seats
+                  .map((_, i) => i)
+                  .filter((i) => snap.teamOf?.[i] === team);
+                const won = snap.winningTeam === team;
+                return (
+                  <tr key={label} style={{ borderTop: '1px solid var(--line)', fontWeight: won ? 800 : 400 }}>
+                    <td style={{ padding: '4px 8px' }}>{label}</td>
+                    <td style={{ padding: '4px 8px' }}>
+                      {seats.map((i) => (i === snap.winnerSeat ? `${nameOf(i)} ★` : nameOf(i))).join(', ')}
+                    </td>
+                    <td style={{ padding: '4px 8px', color: won ? 'var(--good)' : 'var(--muted)' }}>
+                      {won ? 'won' : 'lost'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      {done && snap.placement.length > 1 && (
+        <Card style={{ maxWidth: 640 }}>
+          <h3 className="font-display" style={{ margin: '0 0 8px' }}>Final placement</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: 'var(--muted)' }}>
+                <th style={{ padding: '4px 8px' }}>#</th>
+                <th style={{ padding: '4px 8px' }}>Player</th>
+                <th style={{ padding: '4px 8px' }}>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snap.placement.map((seat, i) => (
+                <tr key={seat} style={{ borderTop: '1px solid var(--line)' }}>
+                  <td style={{ padding: '4px 8px', fontWeight: 800 }}>{i + 1}</td>
+                  <td style={{ padding: '4px 8px' }}>
+                    <span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: SEAT_COLORS[seat % SEAT_COLORS.length], marginRight: 8 }} />
+                    {seat === mySeat ? 'You' : nameOf(seat)}
+                  </td>
+                  <td style={{ padding: '4px 8px', color: 'var(--muted)' }}>
+                    {snap.finishReason === 'goal' ? 'reached goal' : snap.finishReason ?? '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
       <style>{`@media (max-width: 900px) { .nexus-game-layout { grid-template-columns: minmax(0,1fr) !important; } }`}</style>
     </div>
   );
 }
+
+const TEAM_LABELS = ['Team A', 'Team B'] as const;
 
 const partyBtn: React.CSSProperties = {
   background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 10,
@@ -337,6 +436,15 @@ export function PartyOnlineActions() {
   const [size, setSize] = useState(9);
   const [walls, setWalls] = useState(5);
   const [visibility, setVisibility] = useState<'public' | 'friends' | 'unlisted' | 'private'>('public');
+  const [continueForPlacement, setContinueForPlacement] = useState(false);
+  // Party presets (MLT-009): team 2v2 and the opt-in placement race are
+  // chosen here instead of threading a new query parameter through the page.
+  const [teamMode, setTeamMode] = useState(false);
+  const [fog, setFog] = useState(false);
+  const [chaos, setChaos] = useState(false);
+  const [siege, setSiege] = useState(false);
+  // Which seat count the mode checkboxes apply to (the last one clicked).
+  const [modePlayers, setModePlayers] = useState(4);
   const pollRef = useRef<number | null>(null);
   useEffect(() => () => {
     if (pollRef.current !== null) clearInterval(pollRef.current);
@@ -387,12 +495,28 @@ export function PartyOnlineActions() {
     }, 120000);
   }
 
-  async function createPrivate(players: number) {
+  // `team` forces team mode for the dedicated 2v2 preset button.
+  async function createPrivate(players: number, team = false) {
     if (user === null) { navigate('/login?next=/play'); return; }
     setBusy(true);
     setError(null);
     try {
-      const g = await api.multiCreate({ players, boardSize: size, wallsPerPlayer: walls, timeControl: '3+0', visibility });
+      const teamOn = team || (teamMode && (players === 4 || players === 2));
+      // Siege is inherently 1v1 (one attacker vs one defender).
+      const siegeOn = siege && players === 2;
+      const g = await api.multiCreate({
+        players,
+        boardSize: size,
+        wallsPerPlayer: walls,
+        timeControl: '3+0',
+        visibility,
+        // Team mode and the placement race are mutually exclusive server-side.
+        continueForPlacement: teamOn ? false : continueForPlacement,
+        teamMode: teamOn,
+        fog,
+        chaos: teamOn || siegeOn ? false : chaos,
+        siege: siegeOn,
+      });
       navigate(`/play/multi?online=1&gameId=${g.id}`);
     } catch (err) {
       setBusy(false);
@@ -410,6 +534,23 @@ export function PartyOnlineActions() {
         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Watch</span>
         <Segmented options={['public', 'friends', 'unlisted', 'private'] as const} active={visibility} onChange={setVisibility} ariaLabel="party visibility" />
       </div>
+      <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={continueForPlacement}
+          disabled={teamMode}
+          onChange={(e) => setContinueForPlacement(e.target.checked)}
+        />
+        Full placement race — keep playing until every seat finishes
+      </label>
+      <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={teamMode}
+          onChange={(e) => { setTeamMode(e.target.checked); if (e.target.checked) setContinueForPlacement(false); }}
+        />
+        Team game{teamMode ? ` — seats 1+3 vs 2+4 share the win` : ' (2v2 or 2-seat only)'}
+      </label>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {[2, 3, 4, 5, 6].map((n) => (
           <Button key={n} variant="ghost" disabled={busy} onClick={() => void quickMatch(n)}>
@@ -417,9 +558,39 @@ export function PartyOnlineActions() {
           </Button>
         ))}
       </div>
+      <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', cursor: 'pointer' }}>
+        <input type="checkbox" checked={fog} onChange={(e) => setFog(e.target.checked)} />
+        Fog of war — you only see walls near your own pawn
+      </label>
+      <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={chaos}
+          disabled={teamMode || (siege && modePlayers === 2)}
+          onChange={(e) => setChaos(e.target.checked)}
+        />
+        Chaos — wall budget rotates, nobody banks an arsenal
+      </label>
+      <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 13, fontWeight: 700, color: 'var(--muted)', cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={siege}
+          disabled={modePlayers !== 2}
+          onChange={(e) => { setSiege(e.target.checked); if (e.target.checked) setChaos(false); }}
+        />
+        Siege — 2P only: seat 1 starts a row in with extra walls
+      </label>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Button variant="subtle" disabled={busy} onClick={() => void createPrivate(4, true)}>
+          2v2 team private link
+        </Button>
         {[2, 3, 4, 5, 6].map((n) => (
-          <Button key={n} variant="subtle" disabled={busy} onClick={() => void createPrivate(n)}>
+          <Button
+            key={n}
+            variant="ghost"
+            disabled={busy}
+            onClick={() => { setModePlayers(n); void createPrivate(n); }}
+          >
             {n}P private link
           </Button>
         ))}

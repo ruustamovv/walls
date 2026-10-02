@@ -21,7 +21,7 @@ export interface World {
   base: string;
 }
 
-export async function boot(dbName: string): Promise<World> {
+export async function boot(dbName: string, port = 0): Promise<World> {
   const mongod = await MongoMemoryServer.create({ instance: { dbName } });
   process.env['MONGODB_URI'] = mongod.getUri();
   process.env['MONGODB_DB_NAME'] = dbName;
@@ -30,7 +30,7 @@ export async function boot(dbName: string): Promise<World> {
   __resetAuthServiceForTests();
   await ensureIndexes(await getMongoDb());
   const app = await buildApp();
-  await app.listen({ port: 0, host: '127.0.0.1' });
+  await app.listen({ port, host: '127.0.0.1' });
   const addr = app.server.address() as AddressInfo;
   const sio = attachGameSocket(app.server);
   return { mongod, app, sio, base: `http://127.0.0.1:${addr.port}` };

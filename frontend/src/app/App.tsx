@@ -2,7 +2,7 @@
  * App shell: persistent sidebar (desktop), top bar + drawer (tablet),
  * bottom tabs (mobile), session bootstrap, route map.
  */
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Link, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
 import { Spinner } from '../components/ui/primitives.js';
 
@@ -25,8 +25,6 @@ const DesignerPage = lazy(() => import('../pages/designer/DesignerPage.js'));
 const TrainingPage = lazy(() => import('../pages/training/TrainingPage.js'));
 const FriendsPage = lazy(() => import('../pages/friends/FriendsPage.js'));
 const ClubsPage = lazy(() => import('../pages/clubs/ClubsPage.js'));
-const TournamentsPage = lazy(() => import('../pages/tournaments/TournamentsPage.js'));
-const PremiumPage = lazy(() => import('../pages/premium/PremiumPage.js'));
 const ProfilePage = lazy(() => import('../pages/profile/ProfilePage.js'));
 import { useLocation } from 'react-router-dom';
 const NotificationsPage = lazy(() => import('../pages/notifications/NotificationsPage.js'));
@@ -34,17 +32,15 @@ const SearchPage = lazy(() => import('../pages/search/SearchPage.js'));
 const TermsPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.TermsPage })));
 const PrivacyPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.PrivacyPage })));
 const FairPlayPage = lazy(() => import('../pages/legal/LegalPages.js').then((m) => ({ default: m.FairPlayPage })));
-const BotsPage = lazy(() => import('../pages/bots/BotsPage.js'));
 const NemesisPage = lazy(() => import('../pages/nemesis/NemesisPage.js'));
 const LeaderboardPage = lazy(() => import('../pages/leaderboard/LeaderboardPage.js'));
-const WatchPage = lazy(() => import('../pages/watch/WatchPage.js'));
 const SettingsPage = lazy(() => import('../pages/settings/SettingsPage.js'));
 import { BRAND } from '../lib/brand.js';
 import { useT } from '../lib/i18n.js';
 import { useSession } from '../stores/session.js';
-import { useSettings } from '../stores/settings.js';
 import { Avatar, Logo } from '../components/ui/primitives.js';
 import { DevTodoDrawer } from '../components/dev/DevTodoDrawer.js';
+import { LoginWindow } from '../components/auth/LoginWindow.js';
 import { useToasts } from '../stores/toasts.js';
 
 function Toaster() {
@@ -81,15 +77,11 @@ function Icon({ d }: { d: string }) {
 
 const PATHS = {
   play: 'M10 2l8 8-8 8V2zM4 4h2v12H4z',
-  bots: 'M10 3a7 7 0 017 7v1h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a7 7 0 01-14 0H2a1 1 0 01-1-1v-3a1 1 0 011-1h1V10a7 7 0 017-7zm-2.5 6.5A1.5 1.5 0 109 11a1.5 1.5 0 00-1.5-1.5zm5 0A1.5 1.5 0 1014 11a1.5 1.5 0 00-1.5-1.5zM8 14h4v1.5H8z',
   puzzles: 'M9 2h6v4h4v6h-4v2h-2v4H7v-4H3V8h4V2h2zm0 2v4H5v4h4v2h2v-2h4V8h-4V4H9z',
   board: 'M3 3h14v14H3zM3 8h14M3 13h14M8 3v14M13 3v14',
-  watch: 'M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5zm8 2.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z',
   friends: 'M10 8a3 3 0 100-6 3 3 0 000 6zm-7 9c0-3.5 3-6 7-6s7 2.5 7 6v1H3v-1z',
   clubs: 'M10 2l7 3v6c0 4-3 6.8-7 7-4-.2-7-3-7-7V5l7-3zm0 2.2L5 6v5c0 3 2.2 5 5 5.4 2.8-.4 5-2.4 5-5.4V6l-5-1.8zm-3 5h6v2H7V9zm1 3h4v4H8v-4z',
-  trophy: 'M7 3h6v2h4v2c0 3.5-2.5 5.8-5 6.3V15h2v3H6v-3h2v-1.7C5.5 12.8 3 10.5 3 7V5h4V3zm-2 4H4v1c0 1.8 1 3.2 2.3 3.8L6 7zm8 0v4.8c1.3-.6 2.3-2 2.3-3.8V7H13z',
   training: 'M10 2a8 8 0 100 16 8 8 0 000-16zm0 2a6 6 0 110 12 6 6 0 010-12zm0 2a4 4 0 100 8 4 4 0 000-8zm0 3l2.5 2.5-1.4 1.4L10 11.8l-1.1 1.1-1.4-1.4L10 9z',
-  gem: 'M10 2l7 5-7 11L3 7l7-5zm0 2.3L5 7.5 10 15l5-7.5-5-3.2zM3 7h14',
   settings: 'M10 7a3 3 0 100 6 3 3 0 000-6zm8 3a8 8 0 01-.2 1.7l2 1.6-2 3.4-2.4-.9a8 8 0 01-2.9 1.7L12 20h-4l-.5-2.5a8 8 0 01-2.9-1.7l-2.4.9-2-3.4 2-1.6A8 8 0 012 10V8l2.2-.3 1-2.1L4 4l2-3 2 1.4 2-1V0h4v1.4l2 1-2-1.4 2 3-1.2 1.6 1 2.1L18 8v2z',
   admin: 'M10 2l7 3v6c0 4-3 6.5-7 7-4-.5-7-3-7-7V5z',
 } as const;
@@ -105,15 +97,11 @@ interface NavItem {
 
 const ITEMS: NavItem[] = [
   { to: '/play', label: 'Play', i18n: 'play', icon: 'play' },
-  { to: '/bots', label: 'Bots', i18n: 'bots', icon: 'bots' },
   { to: '/puzzles', label: 'Puzzles', i18n: 'puzzles', icon: 'puzzles' },
   { to: '/learn', label: 'Learn', i18n: 'learn', icon: 'training' },
   { to: '/leaderboard', label: 'Ranks', i18n: 'ranks', icon: 'board' },
-  { to: '/watch', label: 'Watch', i18n: 'watch', icon: 'watch' },
   { to: '/friends', label: 'Friends', i18n: 'friends', icon: 'friends', authOnly: true },
   { to: '/clubs', label: 'Clubs', i18n: 'clubs', icon: 'clubs', authOnly: true },
-  { to: '/tournaments', label: 'Cups', i18n: 'cups', icon: 'trophy' },
-  { to: '/premium', label: 'Premium', i18n: 'premium', icon: 'gem' },
   { to: '/settings', label: 'Settings', i18n: 'settings', icon: 'settings' },
 ];
 
@@ -121,7 +109,6 @@ const MOBILE_TABS: NavItem[] = [
   { to: '/play', label: 'Play', i18n: 'play', icon: 'play' },
   { to: '/puzzles', label: 'Puzzles', i18n: 'puzzles', icon: 'puzzles' },
   { to: '/training', label: 'Training', i18n: 'training', icon: 'training', authOnly: true },
-  { to: '/watch', label: 'Watch', i18n: 'watch', icon: 'watch' },
   { to: '/settings', label: 'More', i18n: 'settings', icon: 'settings' },
 ];
 
@@ -160,91 +147,76 @@ function useUnread(): number {
   return unread;
 }
 
-function Sidebar() {
+function Sidebar({ openLogin }: { openLogin: () => void }) {
   const { user, logout } = useSession();
   const navigate = useNavigate();
   const t = useT();
   const isAdmin = useIsAdmin();
   const unread = useUnread();
-  const collapsed = useSettings((s) => s.navCollapsed);
-  const setCollapsed = useSettings((s) => s.setNavCollapsed);
   // Guests see the public shelf; account features prompt registration (SHL-006).
   const isGuest = user?.guest === true;
   const visible = ITEMS.filter((i) => (!i.adminOnly || isAdmin) && (!i.authOnly || (user !== null && !isGuest)));
   return (
     <aside className="nexus-sidebar" style={{
-      width: collapsed ? 76 : 248, flexShrink: 0, borderRight: '1px solid var(--line)', background: 'var(--surface)',
+      width: 248, flexShrink: 0, borderRight: '1px solid var(--line)', background: 'var(--surface)',
       position: 'sticky', top: 0, height: '100vh', display: 'flex', flexDirection: 'column', padding: 'var(--space-4)',
-      transition: 'width var(--dur-med) ease',
     }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 'var(--space-4)' }}>
         <Link to="/" style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', flex: 1, minWidth: 0 }} aria-label={BRAND.APP_NAME}>
           <Logo size={32} />
-          {!collapsed && (
-            <span className="font-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: '.02em' }}>
-              {BRAND.APP_SHORT_NAME}
-            </span>
-          )}
+          <span className="font-display" style={{ fontWeight: 700, fontSize: 20, letterSpacing: '.02em' }}>
+            {BRAND.APP_SHORT_NAME}
+          </span>
         </Link>
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          title={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-          aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}
-          style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 8, width: 28, height: 28, color: 'var(--muted)', flexShrink: 0 }}
-        >
-          {collapsed ? '»' : '«'}
-        </button>
       </div>
       <nav aria-label="Primary" style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1 }}>
         {visible.map((i) => (
-          <NavLink key={i.to} to={i.to} title={collapsed ? t(i.i18n) : undefined} style={({ isActive }) => itemStyle(isActive)}>
-            <Icon d={PATHS[i.icon]} />{!collapsed && t(i.i18n)}
+          <NavLink key={i.to} to={i.to} style={({ isActive }) => itemStyle(isActive)}>
+            <Icon d={PATHS[i.icon]} />{t(i.i18n)}
           </NavLink>
         ))}
         {user !== null && (
           <>
-            <NavLink to="/notifications" title={collapsed ? 'Inbox' : undefined} style={({ isActive }) => itemStyle(isActive)}>
+            <NavLink to="/notifications" style={({ isActive }) => itemStyle(isActive)}>
               <Icon d="M6 16v-5a4 4 0 018 0v5l1.5 2.5h-11zM8.5 19a1.5 1.5 0 003 0" />
-              {!collapsed && 'Inbox'}
+              Inbox
               {unread > 0 && (
-                <span aria-label={`${unread} unread`} style={{ marginLeft: collapsed ? 0 : 'auto', background: 'var(--primary)', color: 'var(--primary-ink)', borderRadius: 999, fontSize: 11, fontWeight: 800, padding: '1px 7px' }}>
+                <span aria-label={`${unread} unread`} style={{ marginLeft: 'auto', background: 'var(--primary)', color: 'var(--primary-ink)', borderRadius: 999, fontSize: 11, fontWeight: 800, padding: '1px 7px' }}>
                   {unread > 99 ? '99+' : unread}
                 </span>
               )}
             </NavLink>
-            <NavLink to="/search" title={collapsed ? 'Search' : undefined} style={({ isActive }) => itemStyle(isActive)}>
+            <NavLink to="/search" style={({ isActive }) => itemStyle(isActive)}>
               <Icon d="M9 3a6 6 0 104.2 10.3L18 18l1.5-1.5-4.6-4.6A6 6 0 009 3zm0 2a4 4 0 110 8 4 4 0 010-8z" />
-              {!collapsed && 'Search'}
+              Search
             </NavLink>
           </>
         )}
       </nav>
       <div style={{ borderTop: '1px solid var(--line)', paddingTop: 'var(--space-3)' }}>
         {user === null ? (
-          collapsed
-            ? <Link to="/login" title={t('login')} aria-label={t('login')} style={{ ...itemStyle(false), justifyContent: 'center' }}><Icon d="M10 3a7 7 0 017 7v1h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a7 7 0 01-14 0H2a1 1 0 01-1-1v-3a1 1 0 011-1h1V10a7 7 0 017-7z" /></Link>
-            : <Link to="/login" style={{ ...itemStyle(false), fontWeight: 700 }}>{t('login')}</Link>
+          <button type="button" onClick={openLogin} style={{ ...itemStyle(false), fontWeight: 700, width: '100%', cursor: 'pointer' }}>
+            {t('login')}
+          </button>
         ) : isGuest ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {!collapsed && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Guest — progress not saved</span>}
-            <Link to="/signup?next=/play" style={{ ...itemStyle(false), fontWeight: 700, justifyContent: collapsed ? 'center' : undefined }} title="Create an account">
-              <Icon d="M10 3a7 7 0 017 7v1h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a7 7 0 01-14 0H2a1 1 0 01-1-1v-3a1 1 0 011-1h1V10a7 7 0 017-7z" />{!collapsed && 'Register'}
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Guest — progress not saved</span>
+            <Link to="/signup?next=/play" style={{ ...itemStyle(false), fontWeight: 700 }} title="Create an account">
+              <Icon d="M10 3a7 7 0 017 7v1h1a1 1 0 011 1v3a1 1 0 01-1 1h-1a7 7 0 01-14 0H2a1 1 0 01-1-1v-3a1 1 0 011-1h1V10a7 7 0 017-7z" />Register
             </Link>
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <Link to="/profile/me" title={collapsed ? user.username : undefined} style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', fontWeight: 700, flex: 1, minWidth: 0, justifyContent: collapsed ? 'center' : undefined }}>
+            <Link to="/profile/me" style={{ display: 'flex', gap: 10, alignItems: 'center', textDecoration: 'none', fontWeight: 700, flex: 1, minWidth: 0 }}>
               <Avatar name={user.username} size={30} />
-              {!collapsed && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</span>}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</span>
             </Link>
-            {!collapsed && (
-              <button
-                onClick={() => { void logout().then(() => navigate('/')); }}
-                style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13 }}
-              >
-                {t('logout')}
-              </button>
-            )}
+            <button
+              onClick={() => { void logout().then(() => navigate('/')); }}
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 13 }}
+            >
+              {t('logout')}
+            </button>
           </div>
         )}
       </div>
@@ -252,7 +224,7 @@ function Sidebar() {
   );
 }
 
-function TopBar({ onMenu }: { onMenu: () => void }) {
+function TopBar({ onMenu, openLogin }: { onMenu: () => void; openLogin: () => void }) {
   const { user } = useSession();
   const t = useT();
   return (
@@ -268,7 +240,9 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         </Link>
         <span style={{ marginLeft: 'auto' }}>
           {user === null ? (
-            <Link to="/login" style={{ fontSize: 14 }}>{t('login')}</Link>
+            <button type="button" onClick={openLogin} style={{ fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', font: 'inherit' }}>
+              {t('login')}
+            </button>
           ) : (
             <Link to="/profile/me" style={{ display: 'inline-flex', gap: 8, alignItems: 'center', textDecoration: 'none', fontWeight: 700, fontSize: 14 }}>
               <Avatar name={user.username} size={24} />{user.username}
@@ -381,6 +355,8 @@ export default function App() {
   const me = useSession((s) => s.user);
   const amAdmin = useIsAdmin();
   const [drawer, setDrawer] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const openLogin = useCallback(() => setLoginOpen(true), []);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -412,9 +388,9 @@ export default function App() {
       </a>
       <Telemetry />
       <Broadcast />
-      <Sidebar />
+      <Sidebar openLogin={openLogin} />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <TopBar onMenu={() => setDrawer(true)} />
+        <TopBar onMenu={() => setDrawer(true)} openLogin={openLogin} />
         <main id="main" style={{ maxWidth: 1280, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
           <Suspense fallback={<div style={{ padding: 24 }}><Spinner /></div>}>
           <Routes>
@@ -440,14 +416,9 @@ export default function App() {
             <Route path="/friends" element={<FriendsPage />} />
             <Route path="/clubs" element={<ClubsPage />} />
             <Route path="/clubs/:id" element={<ClubsPage />} />
-            <Route path="/tournaments" element={<TournamentsPage />} />
-            <Route path="/tournaments/:id" element={<TournamentsPage />} />
-            <Route path="/premium" element={<PremiumPage />} />
             <Route path="/admin" element={<AdminMoved />} />
-            <Route path="/bots" element={<BotsPage />} />
           <Route path="/nemesis" element={<NemesisPage />} />
             <Route path="/leaderboard" element={<LeaderboardPage />} />
-            <Route path="/watch" element={<WatchPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile/:id" element={<ProfilePage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
@@ -460,6 +431,7 @@ export default function App() {
           </Suspense>
         </main>
       </div>
+      <LoginWindow open={loginOpen} next="/play" onClose={() => setLoginOpen(false)} />
       <BottomTabs />
       <Toaster />
       <DevTodoDrawer />

@@ -110,6 +110,7 @@ export type RejectReason =
   | 'no_walls_remaining'
   | 'duplicate_wall'
   | 'crossing_wall'
+  | 'overlapping_wall'
   | 'blocks_path'
   | 'invalid_orientation'
   | 'invalid_action';

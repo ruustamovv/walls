@@ -14,7 +14,9 @@ export {
   commentate,
   featureEnabled,
   monthlySpendUsd,
+  proposePuzzleTaste,
   type CoachResult,
   type CommentaryFacts,
   type GameSummaryFacts,
+  type PuzzleTastePick,
 } from './complete.js';

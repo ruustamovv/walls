@@ -11,8 +11,26 @@ let redis: Redis | null = null;
 export function getRedis(): Redis {
   if (redis !== null) return redis;
   const url = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
-  redis = new Redis(url, { lazyConnect: true, maxRetriesPerRequest: 2, enableReadyCheck: true });
-  redis.on('error', (err) => logger.warn({ err: String(err) }, 'Redis error'));
+  redis = new Redis(url, {
+    lazyConnect: true,
+    maxRetriesPerRequest: 1,
+    enableReadyCheck: true,
+    // Short connect timeout + capped backoff: when Redis is simply absent the
+    // client must give up in a second or two instead of retrying for ~20s and
+    // stalling the whole boot. Redis is optional (sessions fall back to a
+    // process-local store), so a fast, quiet degrade beats a slow, loud one.
+    connectTimeout: 1500,
+    retryStrategy: (times: number): number | null => (times > 2 ? null : Math.min(150 * times, 400)),
+  });
+  // One quiet warning instead of a storm: an absent Redis is a known,
+  // supported state, not an incident worth a log line per retry.
+  let warnedUnavailable = false;
+  redis.on('error', (err) => {
+    if (!warnedUnavailable) {
+      warnedUnavailable = true;
+      logger.warn({ err: String(err) }, 'Redis unavailable — running degraded');
+    }
+  });
   return redis;
 }
 

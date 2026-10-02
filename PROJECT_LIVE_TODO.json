@@ -1,34 +1,33 @@
 {
   "schemaVersion": "1.0.0",
   "project": "wall-and-pawn strategy platform (internal codename PROJECT_NEXUS)",
-  "updatedAt": "2026-09-30",
+  "updatedAt": "2026-10-01",
   "meta": {
     "currentPhase": "16",
     "currentEpic": "AI provider roles",
-    "currentTask": "AIC-008 Architect board generator",
+    "currentTask": "Owner-blocked: BRN-002 brand name + BRN-003 domain",
     "next": [
-      "TST-006 Real-browser E2E harness",
-      "MLT-009 Special modes (Fog/Team/Chaos/Siege)",
-      "FRP-002 Anti-cheat signals + review queue",
-      "QAF-001 Final QA sweep",
-      "MLT-007 Placement + first-win-end rules"
+      "BRN-002 Unique public brand (owner decision)",
+      "BRN-003 Domain acquisition (owner purchase)",
+      "Optional: start real Redis; manual assistive-technology QA"
     ],
     "tests": {
-      "engine": "pass (77/77)",
-      "backend": "pass (127/127)",
+      "engine": "pass (100/100)",
+      "backend": "pass (163/163)",
       "frontend": "pass (typecheck+build)",
-      "e2e": "pass (9/9 workspace journeys)",
+      "admin": "pass (typecheck+build)",
+      "e2e": "pass (9/9 API journeys + 6/6 real-browser Playwright journeys)",
       "load": "soak clean: p95 120ms, 24-socket storm ok"
     },
     "build": "pass",
-    "database": "up (local MongoDB; owner pastes production URI)",
-    "redis": "up",
+    "database": "up (Atlas quoridor: 40 collections, 57 indexes, verified end-to-end)",
+    "redis": "DOWN in this env — server degrades (memory sessions); matchmaking/presence/queues degraded",
     "engine": "pass",
     "ai": "graceful-unconfigured (fallback chain live)",
     "backend": "pass",
     "frontend": "pass",
-    "lastChange": "Party puzzles: daily 4P choke generation + grading by multi eval + UI; engine 77/77, e2e 9/9",
-    "lastTestRun": "2026-09-30"
+    "lastChange": "MLT-009 COMPLETE: Fog (server-side per-seat projection, socket fan-out per seat), Chaos (seeded rotating wall budget), Siege (asymmetric 1v1) — engine 100/100, backend 163/163, browser 6/6",
+    "lastTestRun": "2026-10-01"
   },
   "statusLegend": [
     "NOT_STARTED",
@@ -2189,20 +2188,24 @@
       "epic": "Review + engine + coach",
       "title": "Architect board generator",
       "description": "NL prompt -> LLM proposal -> engine validation -> saved challenge.",
-      "status": "NOT_STARTED",
+      "status": "COMPLETE",
       "priority": "P2",
       "dependencies": [
         "AIC-001",
         "ENG-003"
       ],
-      "acceptanceCriteria": "Invalid proposals rejected by engine; valid ones playable.",
+      "acceptanceCriteria": "Invalid proposals rejected by engine; valid ones playable. Prompt -> bounded spec -> optional LLM {size,wallsPerPlayer,theme} only -> engine gate (per-wall validateMove + both routes must exist). Share link decodes to a legal position.",
       "filesOrAreas": [
-        "backend/src/modules/ai/",
-        "frontend/src/pages/designer/"
+        "backend/src/modules/architect/service.ts",
+        "backend/src/modules/ai/complete.ts",
+        "backend/src/routes/architect.ts",
+        "backend/src/tests/architect.test.ts",
+        "frontend/src/pages/designer/DesignerPage.tsx",
+        "frontend/src/lib/api.ts"
       ],
-      "tests": "Validation-gate tests.",
+      "tests": "Parsing, engine-gate rejection reasons, determinism, re-validation of returned boards, HTTP endpoint (20 tests, backend 154/154).",
       "owner": "opencode",
-      "lastUpdated": "2026-09-30"
+      "lastUpdated": "2026-10-01"
     },
     {
       "id": "TRN-001",
@@ -2501,19 +2504,26 @@
       "epic": "Multiplayer 2-6P",
       "title": "Placement + first-win-end rules",
       "description": "Winner stops board by default; placements stored.",
-      "status": "PARTIAL",
+      "status": "COMPLETE",
       "priority": "P1",
       "dependencies": [
         "MLT-001"
       ],
-      "acceptanceCriteria": "Multi results store ordered placement; continue-for-placement is explicit opt-in.",
+      "acceptanceCriteria": "Multi results store ordered placement; continue-for-placement is explicit opt-in (engine continueAfterWin + backend continueForPlacement + frontend checkbox/placement table).",
       "filesOrAreas": [
+        "engine/typescript/multi/types.ts",
         "engine/typescript/multi/game.ts",
-        "backend/src/modules/games/"
+        "engine/typescript/multi/puzzles.ts",
+        "engine/typescript/tests/multi.test.ts",
+        "backend/src/modules/multiGames/service.ts",
+        "backend/src/routes/multi.ts",
+        "backend/src/tests/multi-game.test.ts",
+        "frontend/src/pages/play/MultiGamePage.tsx",
+        "frontend/src/lib/api.ts"
       ],
-      "tests": "Placement tests.",
+      "tests": "Engine elimination/rotation/placement-order tests (82/82); backend service tests opt-in + default (129/129).",
       "owner": "opencode",
-      "lastUpdated": "2026-09-30"
+      "lastUpdated": "2026-10-01"
     },
     {
       "id": "MLT-008",
@@ -2540,21 +2550,29 @@
       "phase": "13",
       "epic": "Multiplayer 2-6P",
       "title": "Special modes (Fog/Team/Chaos/Siege)",
-      "description": "Experimental variants behind flags.",
-      "status": "EXPERIMENTAL",
+      "description": "All four modes shipped: Team 2v2, Fog (server-side per-seat projection), Chaos (seeded rotating budget), Siege (asymmetric 1v1). All default off and casual-only.",
+      "status": "COMPLETE",
       "priority": "P2",
       "dependencies": [
         "MLT-001",
         "ADM-007"
       ],
-      "acceptanceCriteria": "Each mode gated by flag with rules doc; none in ranked.",
+      "acceptanceCriteria": "Each mode gated by an explicit validated per-game flag with a rules doc section; engine rule + backend option + UI + tests; none in ranked; default games unchanged.",
       "filesOrAreas": [
-        "engine/typescript/",
-        "frontend/src/pages/play/"
+        "engine/typescript/multi/fog.ts",
+        "engine/typescript/multi/game.ts",
+        "engine/typescript/multi/types.ts",
+        "engine/typescript/tests/multi.test.ts",
+        "backend/src/modules/multiGames/service.ts",
+        "backend/src/routes/multi.ts",
+        "backend/src/realtime/sockets/multi-fog.ts",
+        "backend/src/tests/multi-game.test.ts",
+        "frontend/src/pages/play/MultiGamePage.tsx",
+        "docs/game-rules/special-modes.md"
       ],
-      "tests": "Mode smoke tests.",
+      "tests": "Engine 12 new mode tests (100/100); backend 7 new mode tests (163/163); browser 6/6; frontend + admin build clean.",
       "owner": "opencode",
-      "lastUpdated": "2026-09-27"
+      "lastUpdated": "2026-10-01"
     },
     {
       "id": "TRN-005",
@@ -2999,20 +3017,26 @@
       "epic": "Fair play + security",
       "title": "Anti-cheat signals + review queue",
       "description": "Timing/engine-similarity/automation/collusion/farming signals; no single-signal bans.",
-      "status": "PARTIAL",
+      "status": "COMPLETE",
       "priority": "P1",
       "dependencies": [
         "FRP-001",
         "ADM-003"
       ],
-      "acceptanceCriteria": "Signals land in moderation queue with evidence bundles.",
+      "acceptanceCriteria": "Signals land in moderation queue with evidence bundles; GET /api/v1/admin/cases + admin Fair-play tab; scripted farming (same pair, 5 rapid ranked wins) produces cases and issues zero bans.",
       "filesOrAreas": [
-        "backend/src/modules/moderation/",
-        "backend/src/modules/games/"
+        "backend/src/modules/fairplay/signals.ts",
+        "backend/src/modules/games/service.ts",
+        "backend/src/modules/multiGames/service.ts",
+        "backend/src/modules/games/finish.ts",
+        "backend/src/routes/admin.ts",
+        "backend/src/tests/fairplay-signals.test.ts",
+        "admin/src/pages/Moderation.tsx",
+        "admin/src/lib/api.ts"
       ],
-      "tests": "Signal tests.",
+      "tests": "Detector unit tests + repository dedupe + HTTP farming test asserting cases exist and the account stays ACTIVE (backend 134/134).",
       "owner": "opencode",
-      "lastUpdated": "2026-09-30"
+      "lastUpdated": "2026-10-01"
     },
     {
       "id": "SEC-001",
@@ -3410,19 +3434,23 @@
       "phase": "21",
       "epic": "Data + testing + QA",
       "title": "Real-browser E2E harness (follow-up)",
-      "description": "Playwright/capable-browser journeys for wall hover/click, touch, and visual flows the API suite cannot cover.",
-      "status": "NOT_STARTED",
+      "description": "Playwright journeys for groove hover-to-place, mobile viewport + touch, guest upgrade click path, landmarks/reduced-motion, and zero-console-error verification.",
+      "status": "COMPLETE",
       "priority": "P1",
       "dependencies": [
         "TST-004"
       ],
       "acceptanceCriteria": "Browser suite runs groove hover-to-place, mobile viewport play, and guest upgrade click-path green.",
       "filesOrAreas": [
-        "tests/e2e-browser/"
+        "tests/src/browser/browser-e2e.test.ts",
+        "tests/src/support/boot.ts",
+        "frontend/vite.config.ts",
+        "package.json",
+        "tests/package.json"
       ],
-      "tests": "Browser suite.",
+      "tests": "Playwright Chromium 6/6 against the real Vite dev server + in-process backend (pnpm test:e2e:browser).",
       "owner": "opencode",
-      "lastUpdated": "2026-09-30"
+      "lastUpdated": "2026-10-01"
     },
     {
       "id": "BAL-001",
@@ -3492,20 +3520,21 @@
       "phase": "21",
       "epic": "Data + testing + QA",
       "title": "Final QA sweep (no-blank/no-fake/no-TODO UI)",
-      "description": "Master §199 checklist across desktop/tablet/mobile.",
+      "description": "Master checklist across desktop/tablet/mobile; browser remainder closed via TST-006.",
       "status": "PARTIAL",
       "priority": "P0",
       "dependencies": [
         "TST-004"
       ],
-      "acceptanceCriteria": "All 40+ acceptance items (§201) verified and signed in PROJECT_STATUS.",
+      "acceptanceCriteria": "Browser-dependent items verified via real Chromium. Full release sign-off remains blocked on owner-only BRN-002/BRN-003 (brand name + domain), which are not delegable.",
       "filesOrAreas": [
         "PROJECT_STATUS.md",
-        "docs/release/"
+        "docs/release/qa-2026-10-01.md",
+        "tests/src/browser/browser-e2e.test.ts"
       ],
-      "tests": "QA sign-off.",
+      "tests": "Real-browser 6/6 (console-error gate, 390px no-overflow + touch, guest->signup, a11y landmarks, reduced motion); static sweep 0 TODO/FIXME/fake-string hits; suites engine 88/88, backend 156/156, e2e 9/9.",
       "owner": "opencode",
-      "lastUpdated": "2026-09-30"
+      "lastUpdated": "2026-10-01"
     },
     {
       "id": "DEV-001",

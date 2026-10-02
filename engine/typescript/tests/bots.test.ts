@@ -11,6 +11,7 @@ import { BOTS, botAction, getBot } from '../bots/personalities.js';
 import { adaptiveBudgetMs } from '../bots/search.js';
 import { makeState } from './helpers.js';
 import { BALANCED_WEIGHTS, topCandidates } from '../index.js';
+import { chooseDeepAction } from '../bots/deep.js';
 
 describe('bots: personalities', () => {
   it('defines 19 rated bots covering every target tier', () => {
@@ -19,6 +20,7 @@ describe('bots: personalities', () => {
       assert.ok(b.id.length > 0);
       assert.ok(b.rating >= 400 && b.rating <= 3300);
       assert.ok(b.wallCandidates >= 0 && b.budgetMs > 0);
+      assert.ok(b.depth >= 1 && b.maxNodes > 0);
     }
     for (const tier of [600, 800, 1000, 1200, 1400, 1600, 1800, 2000, 2200, 2400, 2600, 2800, 3000]) {
       assert.ok(BOTS.some((b) => b.rating === tier && b.experimental !== true), `tier ${tier} present`);
@@ -94,6 +96,32 @@ describe('bots: personalities', () => {
     // Runner up a step: move player 0 one row closer to goal.
     const advanced = makeState(9, { pawns: [{ r: 1, c: 4 }, { r: 8, c: 4 }], turn: 1 });
     assert.ok(evaluateFor(advanced, 0) > evaluateFor(open, 0));
+  });
+
+  it('deep search is legal, deterministic and expands replies', () => {
+    const apex = getBot('apex');
+    assert.ok(apex !== null);
+    const s = createGame({ size: 9, wallsPerPlayer: 10 });
+    const opts = {
+      weights: { ...apex.weights },
+      depth: 2,
+      wallCandidates: 24,
+      innerWallCandidates: 8,
+      maxNodes: 300,
+      wallBias: apex.wallBias,
+      noise: 0,
+      seed: 99,
+    };
+    const r1 = chooseDeepAction(s, opts);
+    const r2 = chooseDeepAction(s, opts);
+    assert.deepEqual(r1.action, r2.action);
+    assert.equal(validateMove(s, r1.action).ok, true);
+    assert.ok(r1.nodes > 0);
+    assert.ok(Number.isFinite(r1.score));
+    // Depth 1 degrades to a static search with zero expanded nodes.
+    const shallow = chooseDeepAction(s, { ...opts, depth: 1 });
+    assert.equal(shallow.nodes, 0);
+    assert.equal(validateMove(s, shallow.action).ok, true);
   });
 
   it('bot-vs-bot 9x9 game terminates with a winner', () => {

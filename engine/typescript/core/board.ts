@@ -107,7 +107,16 @@ export function getNeighbors(pos: Pos, walls: readonly Wall[], size: number): Po
 }
 
 /**
- * Pure geometry check for a wall placement: bounds, duplicate, crossing.
+ * Pure geometry check for a wall placement: bounds, duplicate, crossing, and
+ * collinear half-overlap.
+ *
+ * Collinear half-overlap matters because a wall piece is physically TWO cells
+ * long: an 'h' wall at (r,c) covers columns c and c+1, so an 'h' wall at
+ * (r,c+1) would sit half on top of it. The next free collinear slot is (r,c+2),
+ * which butts cleanly end-to-end. Without this rule two sticks could be
+ * stacked on the same segment — visually a double-thick, half-overlapping
+ * barrier that no player placed that way.
+ *
  * Does NOT check inventory or path preservation (see rules/walls.ts).
  */
 export function canPlaceWallGeometry(
@@ -127,6 +136,12 @@ export function canPlaceWallGeometry(
         return { ok: false, reason: 'duplicate_wall' };
       }
       return { ok: false, reason: 'crossing_wall' };
+    }
+    // Collinear neighbour sharing one cell: overlapping half-overlap.
+    const sameRowH = wall.orientation === 'h' && w.orientation === 'h' && w.r === wall.r && Math.abs(w.c - wall.c) === 1;
+    const sameColV = wall.orientation === 'v' && w.orientation === 'v' && w.c === wall.c && Math.abs(w.r - wall.r) === 1;
+    if (sameRowH || sameColV) {
+      return { ok: false, reason: 'overlapping_wall' };
     }
   }
   return { ok: true };

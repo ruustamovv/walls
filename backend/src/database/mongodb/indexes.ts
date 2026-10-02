@@ -56,11 +56,25 @@ export async function ensureIndexes(db: Db): Promise<string[]> {
   await ensure(COLLECTIONS.chat_messages, { channelId: 1, createdAt: -1 });
   await ensure(COLLECTIONS.entitlements, { userId: 1, entitlement: 1 }, { unique: true, name: 'entitlements_user_ent' });
   await ensure(COLLECTIONS.reports, { status: 1, createdAt: -1 });
+  await ensure(COLLECTIONS.moderation_cases, { status: 1, createdAt: -1 });
+  // Queue dedupe lookup: one OPEN case per (user, kind).
+  await ensure(COLLECTIONS.moderation_cases, { userId: 1, kind: 1, status: 1 }, { name: 'moderation_cases_user_kind' });
   await ensure(COLLECTIONS.notifications, { userId: 1, createdAt: -1 });
   await ensure(COLLECTIONS.fairplay, { userId: 1 }, { unique: true, name: 'fairplay_user' });
   await ensure(COLLECTIONS.profile_view_days, { userId: 1, day: 1 }, { unique: true, name: 'profile_view_days_user_day' });
   await ensure(COLLECTIONS.profile_view_days, { createdAt: 1 }, { expireAfterSeconds: 90 * 86_400, name: 'profile_view_days_ttl' });
   await ensure(COLLECTIONS.tournaments, { status: 1, startAt: 1 });
+  await ensure(COLLECTIONS.tournament_players, { tournamentId: 1, userId: 1 }, { unique: true, name: 'tournament_players_unique' });
+  await ensure(COLLECTIONS.tournament_players, { tournamentId: 1, joinedAt: 1 }, { name: 'tournament_players_order' });
+  await ensure(COLLECTIONS.tournament_rounds, { tournamentId: 1, round: 1 }, { unique: true, name: 'tournament_rounds_unique' });
+  await ensure(COLLECTIONS.bot_profiles, { key: 1 }, { unique: true, name: 'bot_profiles_key' });
+  await ensure(COLLECTIONS.inventories, { userId: 1, slot: 1 }, { unique: true, name: 'inventories_user_slot' });
+  await ensure(COLLECTIONS.email_verifications, { tokenHash: 1 }, { unique: true, name: 'email_verifications_token' });
+  await ensure(COLLECTIONS.email_verifications, { expiresAt: 1 }, { expireAfterSeconds: 7 * 86_400, name: 'email_verifications_ttl' });
+  // Webhook idempotency: the provider does a bare findOne({eventId}) before
+  // processing, so this index must be unique or duplicate deliveries race.
+  await ensure(COLLECTIONS.stripe_events, { eventId: 1 }, { unique: true, name: 'stripe_events_event' });
+  await ensure(COLLECTIONS.stripe_events, { createdAt: -1 }, { name: 'stripe_events_created' });
 
   await ensure(COLLECTIONS.puzzle_attempts, { userId: 1, puzzleId: 1, createdAt: -1 }, { name: 'puzzle_attempts_lookup' });
   await ensure(COLLECTIONS.admin_audit_logs, { createdAt: -1 });

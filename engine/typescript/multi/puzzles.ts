@@ -169,6 +169,15 @@ export function gradeMultiAttempt(puzzle: MultiPuzzle, wall: MultiWall): MultiAt
     moveNumber: 0,
     lastAction: null,
     rulesVersion: '1.0.0-m1',
+    continueAfterWin: false,
+    eliminated: [],
+    placement: [],
+    teamOf: null,
+    winningTeam: null,
+    fog: false,
+    chaos: false,
+    siege: false,
+    siegeHeadStart: 0,
   };
   const probe = probeLeaderGain(state, wall);
   if (!probe.legal) return { solved: false, gain: 0, need: puzzle.needGain, legal: false };

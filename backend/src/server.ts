@@ -4,7 +4,7 @@
  * Shutdown: HTTP → matchmaking → sockets → workers → Redis → Mongo.
  */
 import { buildApp } from './app.js';
-import { loadEnv } from './config/env.js';
+import { loadEnv, loadedEnvFile } from './config/env.js';
 import { logger } from './common/logging/logger.js';
 import { attachGameSocket } from './realtime/sockets/gameSocket.js';
 import { connectDatabases, disconnectDb } from './database/client.js';
@@ -12,6 +12,12 @@ import { closeJobs } from './jobs/queue.js';
 
 async function main(): Promise<void> {
   const env = loadEnv();
+  // Name the env file and target database at boot: a missing/unreadable .env
+  // is otherwise only visible as an opaque validation error.
+  logger.info(
+    { envFile: loadedEnvFile(), db: process.env['MONGODB_DB_NAME'] ?? null },
+    'environment loaded',
+  );
   await connectDatabases({ ensureIdx: true });
   const app = await buildApp({ loggerEnabled: true });
 

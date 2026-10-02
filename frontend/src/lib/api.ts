@@ -110,6 +110,20 @@ export interface MultiSnapshot {
   isOver: boolean;
   winnerSeat: number | null;
   placement: number[];
+  eliminated: number[];
+  continueForPlacement: boolean;
+  /** Seat -> team index in team mode, null in free-for-all. */
+  teamOf: number[] | null;
+  winningTeam: number | null;
+  teamMode: boolean;
+  /** Fog of war: this snapshot is projected to the viewer's seat. */
+  fog: boolean;
+  /** Chaos: wall budget rotates on a cadence. */
+  chaos: boolean;
+  /** Siege: asymmetric economy (seat 0 has extra walls + head start). */
+  siege: boolean;
+  /** Walls hidden from this viewer (fog only; 0 otherwise). */
+  hiddenWalls: number;
   finishReason: 'goal' | 'timeout' | 'resign' | null;
   moveCount: number;
   /** Echo of the most recently applied client action id (idempotency). */
@@ -128,6 +142,10 @@ export const api = {
   login: (input: { login: string; password: string }) =>
     req<{ user: SessionUser }>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify(input) }),
   guest: () => req<{ user: SessionUser }>('/api/v1/auth/guest', { method: 'POST' }),
+  availability: (input: { email: string; username: string }) =>
+    req<{ emailAvailable: boolean; usernameAvailable: boolean; checked: boolean }>(
+      '/api/v1/auth/availability', { method: 'POST', body: JSON.stringify(input) },
+    ),
   convert: (input: { email: string; username: string; password: string }) =>
     req<{ user: SessionUser }>('/api/v1/auth/convert', { method: 'POST', body: JSON.stringify(input) }),
   logout: () => req<{ ok: boolean }>('/api/v1/auth/logout', { method: 'POST' }),
@@ -193,6 +211,9 @@ export const api = {
     walls: { r: number; c: number; orientation: 'h' | 'v' }[];
     wallsRemaining: [number, number];
     needGain: number;
+    difficulty?: 'classic' | 'tricky' | 'sharp' | 'devilish';
+    alternatives?: number;
+    tasteSource?: 'ai' | 'default';
     streak: number;
     solvedToday: boolean;
   }>('/api/v1/puzzles/daily'),
@@ -203,6 +224,7 @@ export const api = {
     legal: boolean;
     reason?: string;
     solution?: { r: number; c: number; orientation: 'h' | 'v' };
+    solutionGain?: number;
     streak: number;
     solvedToday: boolean;
   }>('/api/v1/puzzles/daily/attempt', { method: 'POST', body: JSON.stringify({ wall }) }),
@@ -219,6 +241,7 @@ export const api = {
     walls: { r: number; c: number; orientation: 'h' | 'v' }[];
     wallsRemaining: number[];
     needGain: number;
+    difficulty?: 'classic' | 'tricky' | 'sharp' | 'devilish';
   }>('/api/v1/puzzles/multi/daily'),
   multiPuzzleAttempt: (wall: { r: number; c: number; orientation: 'h' | 'v' }) => req<{
     solved: boolean;
@@ -436,43 +459,6 @@ export const api = {
     { method: 'POST', body: JSON.stringify(input) },
   ),
 
-  tournaments: () => req<{
-    tournaments: { _id: string; title: string; status: string; format: string; timeControl: string }[];
-  }>('/api/v1/tournaments'),
-  tournament: (id: string) => req<{
-    tournament: { _id: string; title: string; status: string; format: string; timeControl: string; ownerId?: string; champion?: string | null; endAt?: string };
-    players: { id: string; username: string | null }[];
-    rounds: { round: number; matches: { a: string | null; b: string | null; winner: string | null }[] }[];
-    standings: { userId: string; username: string | null; wins: number; losses: number; points: number }[];
-  }>(`/api/v1/tournaments/${encodeURIComponent(id)}`),
-  tournamentCreate: (title: string, format: string, recurrence?: string) => req<{ tournament: { _id: string } }>(
-    '/api/v1/tournaments', { method: 'POST', body: JSON.stringify({ title, format, ...(recurrence !== undefined ? { recurrence } : {}) }) },
-  ),
-  tournamentJoin: (id: string) => req<{ ok: boolean }>(`/api/v1/tournaments/${encodeURIComponent(id)}/join`, { method: 'POST' }),
-  tournamentOpen: (id: string) => req<{ ok: boolean }>(`/api/v1/tournaments/${encodeURIComponent(id)}/open`, { method: 'POST' }),
-  tournamentStart: (id: string) => req<{ ok: boolean }>(`/api/v1/tournaments/${encodeURIComponent(id)}/start`, { method: 'POST' }),
-  tournamentReport: (id: string, round: number, matchIndex: number, winnerId: string) => req<{ ok: boolean }>(
-    `/api/v1/tournaments/${encodeURIComponent(id)}/report`,
-    { method: 'POST', body: JSON.stringify({ round, matchIndex, winnerId }) },
-  ),
-  tournamentArena: (id: string) => req<{ status: 'waiting' } | { status: 'matched'; gameId: string }>(
-    `/api/v1/tournaments/${encodeURIComponent(id)}/arena-play`, { method: 'POST' },
-  ),
-  tournamentFinish: (id: string) => req<{ ok: boolean }>(
-    `/api/v1/tournaments/${encodeURIComponent(id)}/finish`, { method: 'POST' },
-  ),
-
-  premium: () => req<{
-    tier: 'free' | 'premium';
-    entitlements: string[];
-    payments: 'disabled' | 'stripe';
-    reason: string;
-    freePreview?: boolean;
-    checkoutReady?: boolean;
-  }>('/api/v1/premium/status'),
-  premiumCheckout: () => req<{ id: string; url: string | null }>(
-    '/api/v1/premium/checkout', { method: 'POST' },
-  ),
   challenge: (username: string, timeControl = '3+1', mode = 'ranked') => req<{ ok: boolean }>(
     '/api/v1/challenges', { method: 'POST', body: JSON.stringify({ username, timeControl, mode }) },
   ),
@@ -581,7 +567,25 @@ export const api = {
     '/api/v1/ai/commentate', { method: 'POST', body: JSON.stringify({ gameId }) },
   ),
 
-  multiCreate: (input: { players?: number; boardSize?: number; wallsPerPlayer?: number; timeControl?: string; visibility?: string }) =>
+  architectDesign: (prompt: string, mode: 'auto' | 'template' = 'auto') =>
+    req<{
+      ok: boolean;
+      source: string | null;
+      code: string | null;
+      walls: { r: number; c: number; orientation: string }[];
+      size: number;
+      difficulty: string;
+      theme: string;
+      chokes: number;
+      routeA: number;
+      routeB: number;
+      reason: string | null;
+      stage: string | null;
+      notes: string[];
+      shareUrl: string | null;
+    }>('/api/v1/architect/design', { method: 'POST', body: JSON.stringify({ prompt, mode }) }),
+
+  multiCreate: (input: { players?: number; boardSize?: number; wallsPerPlayer?: number; timeControl?: string; visibility?: string; continueForPlacement?: boolean; teamMode?: boolean; fog?: boolean; chaos?: boolean; siege?: boolean }) =>
     req<MultiSnapshot>('/api/v1/multi/games', { method: 'POST', body: JSON.stringify(input) }),
   multiGame: (id: string) => req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}`),
   multiJoin: (id: string) => req<MultiSnapshot>(`/api/v1/multi/games/${encodeURIComponent(id)}/join`, { method: 'POST' }),

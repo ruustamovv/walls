@@ -1,5 +1,7 @@
 /**
- * Moderation: users (search/detail/suspend/ban/entitlements) + reports queue.
+ * Moderation: users (search/detail/suspend/ban/entitlements), reports queue,
+ * and the fair-play signal queue (FRP-002). Signals are advisory — staff
+ * resolve them; nothing here bans automatically.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
@@ -8,8 +10,15 @@ import { Badge, Button, Card, Empty, Field, H, Input, Spinner } from '../compone
 
 const ENTITLEMENT_IDS = ['AI_REVIEW_ADVANCED', 'AI_COACH_UNLIMITED', 'ADVANCED_STATS', 'PREMIUM_COSMETICS', 'REPLAY_ANALYTICS'];
 
-export function Moderation({ tab }: { tab: 'users' | 'reports' }) {
-  return tab === 'users' ? <Users /> : <Reports />;
+const SIGNAL_LABELS: Record<string, string> = {
+  'rapid-move-streak': 'Automation (timing)',
+  'same-pair-ranked-wins': 'Rating farming (same pair)',
+  'loss-streak-sandbagging': 'Sandbagging (loss streak)',
+};
+
+export function Moderation({ tab }: { tab: 'users' | 'reports' | 'cases' }) {
+  if (tab === 'users') return <Users />;
+  return tab === 'cases' ? <Cases /> : <Reports />;
 }
 
 function Users() {
@@ -123,6 +132,92 @@ function Users() {
         </Card>
       )}
     </div>
+  );
+}
+
+function Cases() {
+  const [status, setStatus] = useState('OPEN');
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof api.cases>>['cases']>([]);
+  const [note, setNote] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api.cases(status).then((r) => setRows(r.cases)).catch(() => setRows([]));
+  }, [status]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <Card>
+      <H>Fair-play signals</H>
+      <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 12px' }}>
+        Automated signals with evidence bundles. Advisory only — no automatic bans. Review the game, then resolve.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {['OPEN', 'RESOLVED', 'DISMISSED', 'ALL'].map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatus(s)}
+            style={{
+              borderRadius: 999, padding: '6px 12px', fontSize: 13, fontWeight: 700,
+              border: status === s ? '2px solid var(--primary)' : '1px solid var(--line)',
+              background: status === s ? 'var(--primary-soft)' : 'transparent', color: 'var(--ink)',
+            }}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+      {rows.length === 0 ? <Empty title="No signals" body="Nothing awaiting fair-play review." /> : (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 10 }}>
+          {rows.map((c) => (
+            <li key={c._id} style={{ borderTop: '1px solid var(--line)', paddingTop: 8, fontSize: 14 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Badge tone={c.status === 'OPEN' ? 'warn' : 'neutral'}>{c.status}</Badge>
+                <Badge tone="info">{SIGNAL_LABELS[c.kind] ?? c.kind}</Badge>
+                <code>user:{c.userId.slice(0, 12)}</code>
+                <span style={{ color: 'var(--muted)', fontSize: 12 }}>{new Date(c.createdAt).toLocaleString()}</span>
+              </div>
+              <p style={{ margin: '6px 0' }}>{c.summary}</p>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Button kind="ghost" onClick={() => setExpanded(expanded === c._id ? null : c._id)}>
+                  {expanded === c._id ? 'Hide evidence' : 'Evidence'}
+                </Button>
+                {c.status === 'OPEN' && (
+                  <>
+                    <Button kind="ghost" onClick={() => { void api.caseResolve(c._id, 'RESOLVED', note[c._id] ?? '').then(load); }}>
+                      Confirmed
+                    </Button>
+                    <Button kind="ghost" onClick={() => { void api.caseResolve(c._id, 'DISMISSED', note[c._id] ?? '').then(load); }}>
+                      Dismiss
+                    </Button>
+                  </>
+                )}
+              </div>
+              {expanded === c._id && (
+                <pre
+                  style={{
+                    fontSize: 12, background: 'var(--surface-2)', borderRadius: 8,
+                    padding: '8px 10px', margin: '8px 0 0', overflowX: 'auto', fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  {JSON.stringify(c.evidence, null, 2)}
+                </pre>
+              )}
+              {c.status === 'OPEN' && (
+                <div style={{ marginTop: 8 }}>
+                  <Field label="">
+                    <Input
+                      value={note[c._id] ?? ''}
+                      onChange={(e) => setNote((n) => ({ ...n, [c._id]: e.target.value }))}
+                      placeholder="resolution note (optional)"
+                      aria-label="resolution note"
+                    />
+                  </Field>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }
 

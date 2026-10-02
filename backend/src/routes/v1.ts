@@ -7,6 +7,7 @@
  * best-effort; the live result on the GameRecord is authoritative regardless.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import {
   CreateGameSchema,
   GameActionSchema,
@@ -135,6 +136,38 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   });
 
   // ── Auth ───────────────────────────────────────────
+  /**
+   * @openapi POST /api/v1/auth/availability — is this email/username free?
+   * Lets the signup form tell the user BEFORE submitting instead of failing
+   * after. Always returns 200 with booleans: this is a hint, not an
+   * authorisation — the unique indexes remain the source of truth, so a race
+   * still fails safely at register time.
+   */
+  app.post('/api/v1/auth/availability', async (req) => {
+    const body = (req.body ?? {}) as { email?: unknown; username?: unknown };
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const username = typeof body.username === 'string' ? body.username.trim() : '';
+    // Validate shape locally so we never probe garbage (and never leak whether
+    // an invalid value happens to collide).
+    const emailOk = z.string().email().max(254).safeParse(email).success;
+    const usernameOk = z.string().min(3).max(24).regex(/^[a-zA-Z0-9_]+$/).safeParse(username).success;
+    const out = { emailAvailable: true, usernameAvailable: true, checked: false };
+    if (!emailOk && !usernameOk) return out;
+    try {
+      const { getMongoDb } = await import('../database/mongodb/client.js');
+      const { UserRepository } = await import('../database/mongodb/repositories/user.repository.js');
+      const db = await getMongoDb();
+      const users = new UserRepository(db);
+      if (emailOk) out.emailAvailable = (await users.findByEmail(email)) === null;
+      if (usernameOk) out.usernameAvailable = (await users.findByUsername(username)) === null;
+      out.checked = true;
+    } catch {
+      // Offline: report "available" and let register be the judge.
+      return out;
+    }
+    return out;
+  });
+
   /** @openapi POST /api/v1/auth/register — create account (rate-limited). */
   app.post('/api/v1/auth/register', async (req, reply) => {
     const parsed = RegisterSchema.safeParse(req.body);
@@ -1622,10 +1655,10 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   // ── Puzzles ────────────────────────────────────────
   /** @openapi GET /api/v1/puzzles/daily — today's wall puzzle (same for all). */
   app.get('/api/v1/puzzles/daily', async (req) => {
-    const { getDailyPuzzle, publicView, userStreak } = await import('../modules/puzzles/service.js');
+    const { getDailyPuzzleView, publicView, userStreak } = await import('../modules/puzzles/service.js');
     const { todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
     const date = todayKey();
-    const puzzle = await getDailyPuzzle(date);
+    const { puzzle, tasteSource } = await getDailyPuzzleView(date);
     // Auth optional: guests get the puzzle, members also get streak state.
     let streak = 0;
     let solvedToday = false;
@@ -1637,7 +1670,7 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     } catch {
       // guest — puzzle stays fully playable
     }
-    return { ...publicView(puzzle), streak, solvedToday };
+    return { ...publicView(puzzle, tasteSource), streak, solvedToday };
   });
 
   /** @openapi GET /api/v1/puzzles/mine — blunders from your own games. */
@@ -1888,11 +1921,12 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   /** @openapi GET /api/v1/puzzles/multi/daily — today's party choke (same for all). */
   app.get('/api/v1/puzzles/multi/daily', async () => {
     const { multiPuzzleDaily } = await import('../../../engine/typescript/dist/multi/index.js');
-    const { todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
+    const { todayKey, difficultyOf } = await import('../../../engine/typescript/dist/puzzles/index.js');
     const date = todayKey();
     const full = multiPuzzleDaily(date, 4);
     const { solution: _solution, ...publicPuzzle } = full;
-    return { ...publicPuzzle, streak: 0, solvedToday: false };
+    // Uniqueness is not graded for party positions, so cap at tricky/classic.
+    return { ...publicPuzzle, difficulty: difficultyOf(full.solutionGain, 0), streak: 0, solvedToday: false };
   });
 
   /** @openapi POST /api/v1/puzzles/multi/attempt — submit a party wall. */

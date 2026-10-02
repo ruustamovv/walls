@@ -12,7 +12,6 @@ type Item = Awaited<ReturnType<typeof api.notifications>>['notifications'][numbe
 function target(item: Item): string | null {
   if (item.kind === 'match' || item.kind === 'result') return `/game/${encodeURIComponent(item.body ?? '')}`;
   if (item.kind === 'friend_request') return '/friends';
-  if (item.kind === 'tournament') return '/tournaments';
   return null;
 }
 

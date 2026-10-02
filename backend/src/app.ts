@@ -13,6 +13,7 @@ import { logger } from './common/logging/logger.js';
 import { registerV1 } from './routes/v1.js';
 import { registerMulti } from './routes/multi.js';
 import { registerAdmin } from './routes/admin.js';
+import { registerArchitect } from './routes/architect.js';
 import { checkMongoHealth } from './database/mongodb/health.js';
 import { checkRedisHealth } from './database/redis/health.js';
 
@@ -75,6 +76,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await registerV1(app);
   await registerMulti(app);
   await registerAdmin(app);
+  await registerArchitect(app);
 
   return app;
 }

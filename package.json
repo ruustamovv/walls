@@ -8,12 +8,21 @@
     "node": ">=20"
   },
   "scripts": {
+    "doctor": "node scripts/setup/doctor.mjs",
+    "setup": "pnpm install -r && pnpm build:engine && pnpm doctor",
     "install:all": "pnpm install -r",
+    "build:engine": "pnpm --filter ./engine/typescript build",
+    "predev": "pnpm build:engine",
     "dev": "pnpm --parallel dev",
     "dev:frontend": "pnpm --filter ./frontend dev",
     "dev:admin": "pnpm --filter ./admin dev",
     "dev:backend": "pnpm --filter ./backend dev",
-    "dev:engine": "pnpm --filter ./engine/typescript dev",
+    "dev:engine": "pnpm --filter ./engine/typescript build",
+    "prestart": "pnpm build",
+    "start": "pnpm --parallel start",
+    "start:backend": "pnpm --filter ./backend start",
+    "start:frontend": "pnpm --filter ./frontend preview",
+    "start:admin": "pnpm --filter ./admin preview",
     "db:setup": "pnpm --filter ./backend db:setup",
     "db:seed": "pnpm --filter ./backend db:seed",
     "db:indexes": "pnpm --filter ./backend db:indexes",
@@ -27,7 +36,8 @@
     "env:check": "node scripts/setup/env-check.mjs",
     "owner:create": "pnpm --filter ./backend owner:create",
     "simulate": "python -m engine.python.simulation.run --games 1000",
-    "benchmark:engine": "pnpm --filter ./engine/typescript benchmark"
+    "benchmark:engine": "pnpm --filter ./engine/typescript benchmark",
+    "test:e2e:browser": "pnpm --filter ./tests e2e:browser"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

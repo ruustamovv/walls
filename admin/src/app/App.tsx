@@ -10,7 +10,7 @@ import { Moderation } from '../pages/Moderation.js';
 import { Ops } from '../pages/Ops.js';
 import { System } from '../pages/System.js';
 
-type Tab = 'dashboard' | 'users' | 'games' | 'tournaments' | 'clubs' | 'reports' | 'ai' | 'flags' | 'audit' | 'announce' | 'billing';
+type Tab = 'dashboard' | 'users' | 'games' | 'tournaments' | 'clubs' | 'reports' | 'cases' | 'ai' | 'flags' | 'audit' | 'announce' | 'billing';
 type Group = 'command' | 'moderation' | 'ops' | 'system';
 
 const TABS: { id: Tab; label: string; group: Group }[] = [
@@ -18,6 +18,7 @@ const TABS: { id: Tab; label: string; group: Group }[] = [
   { id: 'announce', label: 'Announce', group: 'command' },
   { id: 'users', label: 'Users', group: 'moderation' },
   { id: 'reports', label: 'Reports', group: 'moderation' },
+  { id: 'cases', label: 'Fair-play', group: 'moderation' },
   { id: 'games', label: 'Games', group: 'ops' },
   { id: 'tournaments', label: 'Tournaments', group: 'ops' },
   { id: 'clubs', label: 'Clubs', group: 'ops' },
@@ -130,7 +131,7 @@ export default function App() {
       <main style={{ flex: 1, minWidth: 0, padding: 20, maxWidth: 1180 }}>
         {tab === 'dashboard' && <Dashboard />}
         {tab === 'announce' && <Announce />}
-        {(tab === 'users' || tab === 'reports') && <Moderation tab={tab} />}
+        {(tab === 'users' || tab === 'reports' || tab === 'cases') && <Moderation tab={tab} />}
         {(tab === 'games' || tab === 'tournaments' || tab === 'clubs') && <Ops tab={tab} />}
         {(tab === 'ai' || tab === 'flags' || tab === 'audit' || tab === 'billing') && <System tab={tab} />}
       </main>
