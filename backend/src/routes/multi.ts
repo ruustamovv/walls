@@ -9,7 +9,7 @@ import { AuthError, ValidationError } from '../common/errors/errors.js';
 import { getAuthService } from '../modules/auth/service.js';
 import { multiGamesService } from '../modules/multiGames/service.js';
 import { settleMultiGame } from '../modules/multiGames/finish.js';
-import { persistMultiGameCreated, persistMultiGameFinished, persistMultiMoveAppended } from '../modules/multiGames/persistence.js';
+import { persistMultiGameCreated, persistMultiMoveAppended } from '../modules/multiGames/persistence.js';
 import { MultiMatchQueue } from '../modules/matchmaking/multiQueue.js';
 
 const multiQueue = new MultiMatchQueue();
@@ -45,7 +45,7 @@ const CreateMultiSchema = z.object({
   players: z.number().int().min(2).max(6).default(4),
   boardSize: z.number().int().min(5).max(25).optional(),
   wallsPerPlayer: z.number().int().min(0).max(30).optional(),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
+  timeControl: z.enum(['1+0', '1+1', '2+1', '3+0', '3+1', '3+2', '5+0', '5+1', '10+0', '10+5', '15+10']).default('3+0'),
   visibility: z.enum(['public', 'friends', 'unlisted', 'private']).optional(),
   continueForPlacement: z.boolean().optional(),
   teamMode: z.boolean().optional(),
@@ -56,7 +56,7 @@ const CreateMultiSchema = z.object({
 
 const MultiJoinSchema = z.object({
   players: z.number().int().min(2).max(6).default(4),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
+  timeControl: z.enum(['1+0', '1+1', '2+1', '3+0', '3+1', '3+2', '5+0', '5+1', '10+0', '10+5', '15+10']).default('3+0'),
 });
 
 export async function registerMulti(app: FastifyInstance): Promise<void> {

@@ -10,7 +10,6 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import {
   CreateGameSchema,
-  GameActionSchema,
   LoginSchema,
   MatchmakingJoinSchema,
   normalizeIntent,
@@ -43,6 +42,9 @@ export async function matchmakingDepths(): Promise<{ memory: number; redisRanked
 }
 /** userId -> gameId for matches created while the player was polling. */
 const matchByUser = new Map<string, string>();
+
+/** 60s headline-stats cache (public counters route). */
+let publicStatsCache: { at: number; body: { users: number; gamesToday: number } } | null = null;
 
 let redisQueueOk: boolean | null = null;
 let redisQueueCheckedAt = 0;
@@ -101,15 +103,21 @@ function presetForMode(mode: string): { boardSize: number; wallsPerPlayer: numbe
   return mode === 'ranked' ? { boardSize: 15, wallsPerPlayer: 20 } : { boardSize: 9, wallsPerPlayer: 10 };
 }
 
-async function storedRating(userId: string, timeControl: string): Promise<number> {
+/** Rating plus rated-games count (matchmaking sizes the window from both). */
+async function storedRatingRow(userId: string, timeControl: string): Promise<{ rating: number; games: number }> {
   try {
     const { getMongoDb } = await import('../database/mongodb/client.js');
     const { RatingRepository } = await import('../database/mongodb/repositories/rating.repository.js');
     const db = await getMongoDb();
     const row = await new RatingRepository(db).get(userId, ratingModeFor(timeControl));
-    return row?.rating ?? defaultRating().rating;
+    if (row === null) {
+      const d = defaultRating();
+      return { rating: d.rating, games: 0 };
+    }
+    return { rating: row.rating, games: row.games ?? 0 };
   } catch {
-    return defaultRating().rating;
+    const d = defaultRating();
+    return { rating: d.rating, games: 0 };
   }
 }
 
@@ -553,7 +561,7 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     if (!parsed.success) throw new ValidationError('Invalid matchmaking options');
     rejectRankedForGuest(me.guest, parsed.data.mode);
     // Server-side rating lookup; client rating never trusted.
-    const rating = await storedRating(userId, parsed.data.timeControl);
+    const { rating, games } = await storedRatingRow(userId, parsed.data.timeControl);
     const { conductScoreOf } = await import('../modules/fairplay/outcomes.js');
     const behavior = await conductScoreOf(userId);
     const queue = await getQueue();
@@ -562,6 +570,7 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
       mode: parsed.data.mode,
       timeControl: parsed.data.timeControl,
       rating,
+      gamesPlayed: games,
       joinedAt: Date.now(),
       behavior,
       ...(parsed.data.region !== undefined ? { region: parsed.data.region } : {}),
@@ -604,7 +613,13 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/matchmaking/status', async (req) => {
     const userId = await requireUserId(req);
     const gameId = matchByUser.get(userId);
-    if (gameId === undefined) return { status: 'queued' as const };
+    if (gameId === undefined) {
+      // Still waiting: tell the UI where the ticket stands.
+      const queue = await getQueue();
+      const info = await queue.describe(userId).catch(() => null);
+      if (info === null) return { status: 'queued' as const };
+      return { status: 'queued' as const, ...info };
+    }
     matchByUser.delete(userId);
     return { status: 'matched' as const, gameId };
   });
@@ -683,10 +698,8 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/dms', async (req) => {
     const userId = await requireUserId(req);
     const { getMongoDb } = await import('../database/mongodb/client.js');
-    const { FriendRepository } = await import('../database/mongodb/repositories/social.repository.js');
     const { ChatRepository } = await import('../database/mongodb/repositories/chat.repository.js');
     const db = await getMongoDb();
-    const friends = new FriendRepository(db);
     const chat = new ChatRepository(db);
     const { listFriends } = await import('../modules/friends/service.js');
     const rows = await listFriends(userId);
@@ -1412,6 +1425,18 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
           }
         })(),
         stats: extended,
+        puzzles: await (async () => {
+          try {
+            const { PuzzleRepository } = await import('../database/mongodb/repositories/extended.repositories.js');
+            const { userStreak } = await import('../modules/puzzles/service.js');
+            const repo = new PuzzleRepository(db);
+            const dates = await repo.solvedDates(doc._id).catch(() => [] as string[]);
+            const { streak } = await userStreak(doc._id).catch(() => ({ streak: 0, solvedToday: false }));
+            return { solves: dates.length, streak };
+          } catch {
+            return { solves: 0, streak: 0 };
+          }
+        })(),
         fairPlay: await (async () => {
           try {
             const { FairPlayRepository } = await import('../database/mongodb/repositories/fairplay.repository.js');
@@ -1432,14 +1457,22 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
         })) : [],
         recentGames: historyOpen ? games
           .filter((game) => game.visibility !== 'private' || viewer === doc._id || game.players.some((p) => p.userId === viewer))
-          .map((game) => ({
-            id: game.engineId ?? game._id,
-            mode: game.mode,
-            timeControl: game.timeControl,
-            status: game.status,
-            result: game.result ?? null,
-            createdAt: game.createdAt,
-          })) : [],
+          .map((game) => {
+            const seat = game.players.find((p) => p.userId === doc._id)?.seat;
+            const winnerSeat = game.result?.winnerSeat;
+            return {
+              id: game.engineId ?? game._id,
+              mode: game.mode,
+              timeControl: game.timeControl,
+              status: game.status,
+              result: game.result ?? null,
+              // Viewer-relative outcome (null for live games / draws unknown).
+              won: game.status === 'FINISHED' && typeof seat === 'number' && typeof winnerSeat === 'number'
+                ? winnerSeat === seat
+                : null,
+              createdAt: game.createdAt,
+            };
+          }) : [],
       };
     } catch (err) {
       if (err instanceof ValidationError) throw err;
@@ -1953,6 +1986,60 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     return { ...verdict, solution: verdict.solved ? full.solution : undefined };
   });
 
+  /** Premium gate: any entitlement counts (free users get a clear 403). */
+  async function requirePremiumId(req: FastifyRequest): Promise<string> {
+    const userId = await requireUserId(req);
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const { EntitlementRepository } = await import('../database/mongodb/repositories/premium.repository.js');
+    const db = await getMongoDb();
+    const list = await new EntitlementRepository(db).list(userId).catch(() => []);
+    if (list.length === 0) throw new ValidationError('Premium puzzle pack needs a premium subscription');
+    return userId;
+  }
+
+  /** @openapi GET /api/v1/puzzles/premium/pack — today's 100-puzzle premium pack (cached). */
+  app.get('/api/v1/puzzles/premium/pack', async (req) => {
+    const userId = await requirePremiumId(req);
+    const { getPremiumPack } = await import('../modules/puzzles/service.js');
+    const { todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
+    return getPremiumPack(userId, todayKey());
+  });
+
+  /** @openapi POST /api/v1/puzzles/premium/attempt — submit a pack wall. */
+  app.post('/api/v1/puzzles/premium/attempt', async (req) => {
+    const userId = await requirePremiumId(req);
+    const { WallSchema } = await import('../common/validation/schemas.js');
+    const body = (req.body ?? {}) as { index?: unknown; wall?: unknown };
+    const index = typeof body.index === 'number' ? body.index : -1;
+    if (!Number.isInteger(index) || index < 0 || index >= 100) throw new ValidationError('Invalid pack index');
+    const parsed = WallSchema.safeParse(body.wall);
+    if (!parsed.success) throw new ValidationError('Invalid wall');
+    const { attemptPremium } = await import('../modules/puzzles/service.js');
+    const { todayKey } = await import('../../../engine/typescript/dist/puzzles/index.js');
+    return attemptPremium(userId, index, parsed.data, todayKey());
+  });
+
+  /** @openapi GET /api/v1/stats/public — headline counters (cached 60s, no auth). */
+  app.get('/api/v1/stats/public', async () => {
+    const { getMongoDb } = await import('../database/mongodb/client.js');
+    const now = Date.now();
+    if (publicStatsCache !== null && now - publicStatsCache.at < 60_000) return publicStatsCache.body;
+    try {
+      const db = await getMongoDb();
+      const dayStart = new Date();
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const [users, gamesToday] = await Promise.all([
+        db.collection('users').countDocuments({}).catch(() => 0),
+        db.collection('games').countDocuments({ createdAt: { $gte: dayStart } }).catch(() => 0),
+      ]);
+      const body = { users, gamesToday };
+      publicStatsCache = { at: now, body };
+      return body;
+    } catch {
+      return { users: 0, gamesToday: 0 };
+    }
+  });
+
   /** @openapi GET /api/v1/ai/coach-summary/:gameId — whole-game AI narrative. */
   app.get('/api/v1/ai/coach-summary/:gameId', async (req) => {
     const userId = await requireUserId(req);
@@ -1961,7 +2048,7 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     if (provider === null) {
       return {
         available: false as const,
-        message: 'AI Coach is not configured on this deployment. The engine review above is still available.',
+        message: 'Coach is not configured on this deployment. The engine review above is still available.',
       };
     }
     const rev = await import('../../../engine/typescript/dist/review/index.js');
@@ -2104,7 +2191,7 @@ export async function registerV1(app: FastifyInstance): Promise<void> {
     if (provider === null) {
       return {
         available: false as const,
-        message: 'AI Coach is not configured on this deployment. Post-game engine analysis below is still available.',
+        message: 'Coach is not configured on this deployment. Post-game engine analysis below is still available.',
       };
     }
     const { coachExplanation } = await import('../modules/ai/complete.js');

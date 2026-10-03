@@ -22,6 +22,8 @@ export interface MultiWall {
   r: number;
   c: number;
   orientation: MultiOrientation;
+  /** Seat that placed the wall (stamped by applyMultiMove; absent on hand-built boards). */
+  by?: number;
 }
 
 export interface MultiConfig {

@@ -9,6 +9,8 @@ import { Avatar, DivisionBadge } from '../ui/primitives.js';
 export interface PlayerCardProps {
   name: string;
   rating?: number | null;
+  /** Live win chance 0–100 (hidden while waiting). */
+  winPct?: number | null;
   clockMs: number;
   clockActive: boolean;
   lowTime: boolean;
@@ -20,7 +22,7 @@ export interface PlayerCardProps {
   accent: 0 | 1;
 }
 
-export default memo(function PlayerCard({ name, rating, clockMs, clockActive, lowTime, wallsLeft, wallsTotal, isTurn, isYou, connected = true, accent }: PlayerCardProps) {
+export default memo(function PlayerCard({ name, rating, winPct, clockMs, clockActive, lowTime, wallsLeft, wallsTotal, isTurn, isYou, connected = true, accent }: PlayerCardProps) {
   const color = accent === 0 ? 'var(--player-a)' : 'var(--player-b)';
   return (
     <div style={{
@@ -43,6 +45,9 @@ export default memo(function PlayerCard({ name, rating, clockMs, clockActive, lo
         </div>
         <div style={{ fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           {rating !== null && rating !== undefined && <DivisionBadge rating={rating} />}
+          {winPct !== null && winPct !== undefined && (
+            <span className="font-mono" title="Live win chance" style={{ fontWeight: 800, color: 'var(--ink)' }}>{winPct.toFixed(0)}%</span>
+          )}
           <span title={`${wallsLeft} of ${wallsTotal} walls remaining`} aria-label={`${wallsLeft} of ${wallsTotal} walls remaining`} style={{ display: 'inline-flex', gap: 2 }}>
             {Array.from({ length: Math.min(wallsTotal, 12) }, (_, i) => (
               <span key={i} aria-hidden style={{

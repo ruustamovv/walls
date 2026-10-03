@@ -27,6 +27,8 @@ export interface GameBoardProps {
   lastAction?: Action | null;
   /** Optional route overlay for analysis/casual (never ranked assistance). */
   showPaths?: { a: Pos[]; b: Pos[] } | null;
+  /** Rank/file labels in cell corners (lobby/preview boards). */
+  coords?: boolean;
 }
 
 function wallKey(w: Wall): string {
@@ -77,11 +79,12 @@ interface CellProps {
   showB: boolean;
   hasPawn: boolean;
   pawnLabel: string;
+  coords: boolean;
   onMove: (to: Pos) => void;
 }
 
 const CellButton = memo(function CellButton(props: CellProps) {
-  const { r, c, size, isLegal, isLast, isGoalRow, canAct, showA, showB, hasPawn, pawnLabel, onMove } = props;
+  const { r, c, size, isLegal, isLast, isGoalRow, canAct, showA, showB, hasPawn, pawnLabel, coords, onMove } = props;
   return (
     <button
       aria-label={`cell ${r},${c}${pawnLabel}`}
@@ -104,6 +107,16 @@ const CellButton = memo(function CellButton(props: CellProps) {
       }}
     >
       <span title={`${String.fromCharCode(97 + c)}${size - r}`} style={{ position: 'absolute', inset: 0 }} aria-hidden />
+      {coords && c === 0 && (
+        <span aria-hidden style={{ position: 'absolute', left: 3, top: 1, fontSize: 10, fontWeight: 700, color: 'var(--muted)', opacity: 0.8 }}>
+          {size - r}
+        </span>
+      )}
+      {coords && r === size - 1 && (
+        <span aria-hidden style={{ position: 'absolute', right: 3, bottom: 0, fontSize: 10, fontWeight: 700, color: 'var(--muted)', opacity: 0.8 }}>
+          {String.fromCharCode(97 + c)}
+        </span>
+      )}
       {!hasPawn && isLegal && (
         <span style={{ position: 'absolute', left: '37%', top: '37%', width: '26%', height: '26%', borderRadius: '50%', background: 'var(--primary)', opacity: .55 }} />
       )}
@@ -123,6 +136,12 @@ interface GrooveProps {
   row: number | string;
   col: number | string;
   placed: boolean;
+  /** Seat that placed this wall (undefined = hand-built board, neutral color). */
+  owner: 0 | 1 | undefined;
+  /** Your seat when exactly one human plays, else null (seat-based colors). */
+  mine: 0 | 1 | null;
+  /** True when the side to move is the blue side (your side or seat 0). */
+  turnMine: boolean;
   highlighted: boolean;
   legal: boolean;
   armed: boolean;
@@ -134,8 +153,14 @@ interface GrooveProps {
 }
 
 const GrooveButton = memo(function GrooveButton(props: GrooveProps) {
-  const { wall, label, row, col, placed, highlighted, legal, armed, canAct, isLastWall, onEnter, onLeave, onFire } = props;
+  const { wall, label, row, col, placed, owner, mine, turnMine, highlighted, legal, armed, canAct, isLastWall, onEnter, onLeave, onFire } = props;
   const key = wallKey(wall);
+  // Blue = you (or seat 0 when nobody/exactly-two plays), red = opponent.
+  const anchor = mine ?? 0;
+  const placedColor = owner === undefined
+    ? 'var(--wall)'
+    : (owner === anchor ? 'var(--wall-mine)' : 'var(--wall-theirs)');
+  const ghostColor = turnMine ? 'var(--wall-ghost-mine)' : 'var(--wall-ghost-theirs)';
   return (
     <button
       key={key}
@@ -153,11 +178,11 @@ const GrooveButton = memo(function GrooveButton(props: GrooveProps) {
         borderRadius: 4,
         padding: 0,
         background: placed
-          ? 'var(--wall)'
+          ? placedColor
           : armed
-            ? 'var(--wall-ghost-ok)'
+            ? ghostColor
             : highlighted && canAct
-              ? legal ? 'var(--wall-ghost-ok)' : 'var(--wall-ghost-bad)'
+              ? legal ? ghostColor : 'var(--wall-ghost-bad)'
               : 'transparent',
         cursor: canAct && !placed ? 'pointer' : 'default',
         animation: placed && isLastWall ? 'nexus-wall-in .16s ease' : undefined,
@@ -206,7 +231,7 @@ const PawnToken = memo(function PawnToken(props: PawnTokenProps) {
   );
 });
 
-function GameBoardInner({ state, humanSeats, interactive, onMove, onWall, lastAction = null, showPaths = null }: GameBoardProps) {
+function GameBoardInner({ state, humanSeats, interactive, onMove, onWall, lastAction = null, showPaths = null, coords = false }: GameBoardProps) {
   const { size } = state;
   const canAct = interactive && !state.isOver && humanSeats.includes(state.turn);
   const [hover, setHover] = useState<string | null>(null);
@@ -263,6 +288,11 @@ function GameBoardInner({ state, humanSeats, interactive, onMove, onWall, lastAc
     [state, canAct],
   );
   const placedSet = useMemo(() => new Set(state.walls.map(wallKey)), [state.walls]);
+  const placedBy = useMemo(() => new Map(state.walls.map((w) => [wallKey(w), w.by] as const)), [state.walls]);
+  // Exactly one human at the board: their walls are blue, the other seat red.
+  // Zero/two humans (spectate/local): seat 0 blue, seat 1 red — stable for all.
+  const mine = humanSeats.length === 1 ? (humanSeats[0] as 0 | 1) : null;
+  const turnMine = state.turn === (mine ?? 0);
 
   const tracks = useMemo(() => {
     const parts: string[] = [];
@@ -323,6 +353,7 @@ function GameBoardInner({ state, humanSeats, interactive, onMove, onWall, lastAc
           showB={pathCells.has(`b${r},${c}`)}
           hasPawn={hasPawn}
           pawnLabel={pawnLabel}
+          coords={coords}
           onMove={onMove}
         />,
       );
@@ -338,14 +369,14 @@ function GameBoardInner({ state, humanSeats, interactive, onMove, onWall, lastAc
         <GrooveButton
           key={hk} wall={h} label={`wall row ${r} col ${c} horizontal${placedSet.has(hk) ? ' (placed)' : ''}`}
           row={2 * r + 2} col={`${2 * c + 1} / span 3`}
-          placed={placedSet.has(hk)} highlighted={hover === hk} legal={wallSet.has(hk)}
+          placed={placedSet.has(hk)} owner={placedSet.has(hk) ? placedBy.get(hk) : undefined} mine={mine} turnMine={turnMine} highlighted={hover === hk} legal={wallSet.has(hk)}
           armed={pending === hk} canAct={canAct} isLastWall={lastWallKey === hk}
           onEnter={onEnter} onLeave={onLeave} onFire={fireWall}
         />,
         <GrooveButton
           key={vk} wall={v} label={`wall row ${r} col ${c} vertical${placedSet.has(vk) ? ' (placed)' : ''}`}
           row={`${2 * r + 1} / span 3`} col={2 * c + 2}
-          placed={placedSet.has(vk)} highlighted={hover === vk} legal={wallSet.has(vk)}
+          placed={placedSet.has(vk)} owner={placedSet.has(vk) ? placedBy.get(vk) : undefined} mine={mine} turnMine={turnMine} highlighted={hover === vk} legal={wallSet.has(vk)}
           armed={pending === vk} canAct={canAct} isLastWall={lastWallKey === vk}
           onEnter={onEnter} onLeave={onLeave} onFire={fireWall}
         />,

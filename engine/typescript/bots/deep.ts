@@ -20,8 +20,16 @@ import { evaluateFor, type EvalWeights } from './evaluate.js';
 import { mulberry32 } from './search.js';
 import type { Action, GameState, PlayerIndex, Wall } from '../core/types.js';
 
-export interface DeepSearchOptions {
-  weights: EvalWeights;
+/**
+ * Quiescence swing threshold in eval units. Path steps weigh ~12–13 units,
+ * so 25 ≈ a 2-step route swing — a just-played choke, exactly the leaf the
+ * search must not stop on.
+ */
+export const QUIESCE_SWING = 25;
+/** Quiescence extensions granted per root path (bounds the extra work). */
+export const QUIESCE_EXTENSIONS = 3;
+
+export interface DeepSearchOptions {  weights: EvalWeights;
   /** Plies of adversarial lookahead. 1 = static heuristic max. */
   depth: number;
   /** Wall candidates considered at the root. */
@@ -110,8 +118,24 @@ function orderedActions(state: GameState, frame: Frame, wallCap: number): Candid
   return out;
 }
 
-function negamax(state: GameState, depth: number, alphaIn: number, betaIn: number, frame: Frame): number {
-  if (state.isOver || depth <= 0) return staticEval(state, frame);
+function negamax(state: GameState, depth: number, alphaIn: number, betaIn: number, frame: Frame, parentStatic: number, extLeft: number): number {
+  if (state.isOver) return staticEval(state, frame);
+  if (depth <= 0) {
+    const s = staticEval(state, frame);
+    // Quiescence: a leaf right after a big swing (a just-played choke) is
+    // the worst place to stop thinking — extend one ply so the search sees
+    // the reply instead of the mirage. Bounded by extLeft and the node
+    // budget, so it can never run away.
+    if (extLeft > 0 && Math.abs(s - parentStatic) > QUIESCE_SWING && frame.nodes < frame.opts.maxNodes) {
+      return searchChildren(state, 1, alphaIn, betaIn, frame, extLeft - 1);
+    }
+    return s;
+  }
+  return searchChildren(state, depth, alphaIn, betaIn, frame, extLeft);
+}
+
+/** Expand every candidate once with alpha-beta. Shared by depth and quiescence. */
+function searchChildren(state: GameState, depth: number, alphaIn: number, betaIn: number, frame: Frame, extLeft: number): number {
   frame.nodes++;
   if (frame.nodes > frame.opts.maxNodes) {
     frame.truncated = true;
@@ -128,7 +152,7 @@ function negamax(state: GameState, depth: number, alphaIn: number, betaIn: numbe
   let best = -Infinity;
   for (const c of candidates) {
     const next = applyMove(state, c.action).state;
-    const score = -negamax(next, depth - 1, -betaIn, -alpha, frame);
+    const score = -negamax(next, depth - 1, -betaIn, -alpha, frame, c.static, extLeft);
     if (score > best) best = score;
     if (best > alpha) alpha = best;
     if (alpha >= betaIn) break;
@@ -159,7 +183,7 @@ export function chooseDeepAction(state: GameState, opts: DeepSearchOptions): Dee
     const next = applyMove(state, c.action).state;
     const raw = depth <= 1
       ? c.static
-      : -negamax(next, depth - 1, -Infinity, -alpha, frame);
+      : -negamax(next, depth - 1, -Infinity, -alpha, frame, c.static, QUIESCE_EXTENSIONS);
     const score = raw + (c.action.type === 'wall' ? boost : 0);
     scored.push({ action: c.action, score });
     if (best === null || score > best.score) best = { action: c.action, score };

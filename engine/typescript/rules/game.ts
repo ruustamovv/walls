@@ -116,7 +116,9 @@ export function applyMove(state: GameState, action: Action): ApplyResult {
       events.push('turn_switched');
     }
   } else {
-    next.walls.push({ ...action.wall });
+    // Owner stamp: the seat to move owns the wall it places. Boards see
+    // blue-vs-red purely from this field (absent = hand-built, neutral).
+    next.walls.push({ ...action.wall, by: player });
     next.wallsRemaining[player] -= 1;
     next.turn = other;
     events.push('wall_placed', 'turn_switched');
@@ -140,7 +142,7 @@ function compareWalls(a: { r: number; c: number; orientation: string }, b: { r: 
 function cloneAction(action: Action): Action {
   return action.type === 'move'
     ? { type: 'move', to: { r: action.to.r, c: action.to.c } }
-    : { type: 'wall', wall: { r: action.wall.r, c: action.wall.c, orientation: action.wall.orientation } };
+    : { type: 'wall', wall: { r: action.wall.r, c: action.wall.c, orientation: action.wall.orientation, ...(action.wall.by !== undefined ? { by: action.wall.by } : {}) } };
 }
 
 /**
@@ -217,7 +219,11 @@ export function deserializeState(json: string): GameState {
     if (wr < 0 || wc < 0 || wr > n - 2 || wc > n - 2) {
       throw new Error('Malformed state: wall out of bounds');
     }
-    return { r: wr, c: wc, orientation: w['orientation'] as 'h' | 'v' };
+    const by = w['by'];
+    return {
+      r: wr, c: wc, orientation: w['orientation'] as 'h' | 'v',
+      ...(by === 0 || by === 1 ? { by: by as PlayerIndex } : {}),
+    };
   });
 
   const rem = o['wallsRemaining'];
@@ -244,12 +250,14 @@ export function deserializeState(json: string): GameState {
       lastAction = { type: 'move', to: pos(la['to']) };
     } else if (la['type'] === 'wall') {
       const w = la['wall'] as Record<string, unknown>;
+      const lby = w['by'];
       lastAction = {
         type: 'wall',
         wall: {
           r: w['r'] as number,
           c: w['c'] as number,
           orientation: w['orientation'] as 'h' | 'v',
+          ...(lby === 0 || lby === 1 ? { by: lby } : {}),
         },
       };
     } else {

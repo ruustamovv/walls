@@ -8,6 +8,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import GameBoard from '../../components/game/GameBoard.js';
 import MultiBoard from '../../components/game/MultiBoard.js';
 import { Badge, Card, ErrorBox, Spinner } from '../../components/ui/primitives.js';
+import { Icon } from '../../components/ui/icons.js';
 import { api } from '../../lib/api.js';
 import { useSession } from '../../stores/session.js';
 import type { GameState } from '../../../../engine/typescript/core/types.js';
@@ -41,6 +42,7 @@ export default function PuzzlesPage() {
       <DailyPuzzle userLoggedIn={user !== null} />
       <PartyPuzzle userLoggedIn={user !== null} />
       {user !== null && <MyMistakes />}
+      {user !== null && !user.guest && <PremiumPack />}
     </div>
   );
 }
@@ -104,8 +106,8 @@ function DailyPuzzle({ userLoggedIn }: { userLoggedIn: boolean }) {
         <h1 style={{ margin: 0 }}>Daily puzzle</h1>
         <Badge tone="info">{data.date}</Badge>
         <DifficultyBadge value={data.difficulty} />
-        {data.tasteSource === 'ai' && <Badge tone="good">AI curated</Badge>}
-        {data.streak > 0 && <Badge tone="good">🔥 {data.streak}-day streak</Badge>}
+        {data.tasteSource === 'ai' && <Badge tone="good">Daily pick</Badge>}
+        {data.streak > 0 && <Badge tone="good"><span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}><Icon name="flame" size={14} /> {data.streak}-day streak</span></Badge>}
         {data.solvedToday && <Badge tone="good">solved today</Badge>}
       </div>
       <p style={{ color: 'var(--muted)', margin: 0 }}>{DIFFICULTY_BLURB[data.difficulty ?? 'classic']}</p>
@@ -153,8 +155,7 @@ function DailyPuzzle({ userLoggedIn }: { userLoggedIn: boolean }) {
           <Card>
             <h3 style={{ margin: '0 0 8px' }}>How it works</h3>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>
-              One position for everyone, refreshed daily. An AI curator picks the most demanding
-              engine-graded candidate each morning — alternate winning walls are accepted.
+              One position for everyone, refreshed daily — picked from the most demanding engine-graded candidates.
             </p>
           </Card>
         </div>
@@ -341,5 +342,132 @@ function MistakeCard({ item }: { item: MineItem }) {
         {!solved && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Tip: the engine's best line starts with <strong>{item.best.split(' ')[0]}</strong>.</p>}
       </Card>
     </div>
+  );
+}
+
+type Pack = Awaited<ReturnType<typeof api.premiumPack>>;
+
+function PremiumPack() {
+  const [pack, setPack] = useState<Pack | null>(null);
+  const [denied, setDenied] = useState(false);
+  const [sel, setSel] = useState(0);
+  const [verdict, setVerdict] = useState<Awaited<ReturnType<typeof api.premiumAttempt>> | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.premiumPack()
+      .then((d) => { if (!cancelled) { setPack(d); setSel(0); } })
+      .catch(() => { if (!cancelled) setDenied(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (denied) {
+    return (
+      <section style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>Premium pack</h2>
+          <Badge tone="warn">premium</Badge>
+        </div>
+        <Card>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>
+            Premium members get 100 extra puzzles every day, graded classic → devilish with solve tracking.
+          </p>
+        </Card>
+      </section>
+    );
+  }
+  if (pack === null) return <Spinner />;
+  if (!pack.generated || pack.items.length === 0) {
+    return (
+      <section style={{ display: 'grid', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>Premium pack</h2>
+          <Badge tone="warn">premium</Badge>
+        </div>
+        <Card><p style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>Today&apos;s 100-pack is still generating — check back soon.</p></Card>
+      </section>
+    );
+  }
+
+  const item = pack.items[Math.min(sel, pack.items.length - 1)]!;
+  const solvedCount = pack.solved.filter(Boolean).length;
+
+  async function submit(wall: { r: number; c: number; orientation: 'h' | 'v' }) {
+    setBusy(true);
+    try {
+      const res = await api.premiumAttempt(item.index, wall);
+      setVerdict(res);
+      if (res.solved) {
+        setPack((p) => p === null ? p : { ...p, solved: p.solved.map((s, i) => (i === item.index ? true : s)) });
+      }
+    } catch {
+      setVerdict(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const state: GameState = {
+    size: item.size,
+    wallsPerPlayer: 10,
+    turn: item.turn,
+    pawns: [{ ...item.pawns[0] }, { ...item.pawns[1] }],
+    walls: item.walls.map((w) => ({ ...w })),
+    wallsRemaining: [...item.wallsRemaining],
+    winner: null,
+    isOver: false,
+    moveNumber: 0,
+    lastAction: null,
+    rulesVersion: '1.0.0',
+  };
+
+  return (
+    <section style={{ display: 'grid', gap: 12 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <h2 style={{ margin: 0 }}>Premium pack</h2>
+        <Badge tone="warn">premium</Badge>
+        <Badge tone="info">{pack.date}</Badge>
+        {pack.tasteSource === 'ai' && <Badge tone="good">Daily pick</Badge>}
+        <Badge tone={solvedCount === pack.items.length ? 'good' : 'info'}>{solvedCount}/{pack.items.length} solved</Badge>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(34px, 1fr))', gap: 6 }}>
+        {pack.items.map((p, i) => (
+          <button
+            key={p.index}
+            onClick={() => { setSel(i); setVerdict(null); }}
+            title={`#${p.index + 1} ${p.difficulty ?? 'classic'}${pack.solved[i] ? ' (solved)' : ''}`}
+            style={{
+              borderRadius: 8, border: sel === i ? '2px solid var(--primary)' : '1px solid var(--line)',
+              background: pack.solved[i] ? 'var(--primary-soft)' : 'var(--surface-2)',
+              color: 'var(--ink)', fontSize: 12, fontWeight: 800, padding: '6px 0', cursor: 'pointer',
+            }}
+          >
+            {pack.solved[i] ? '✓' : p.index + 1}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }} className="nexus-game-layout">
+        <div style={{ maxWidth: 480 }}>
+          <GameBoard
+            state={state}
+            humanSeats={[item.turn]}
+            interactive={!busy && !pack.solved[item.index]}
+            onMove={() => undefined}
+            onWall={submit}
+          />
+        </div>
+        <Card>
+          <h3 style={{ margin: '0 0 8px' }}>#{item.index + 1} <DifficultyBadge value={item.difficulty} /></h3>
+          <p style={{ color: 'var(--muted)', fontSize: 14, margin: '0 0 8px' }}>{item.prompt}</p>
+          <p style={{ fontSize: 14, margin: '0 0 8px' }}>Target <strong>+{item.needGain}</strong>{(item.alternatives ?? 1) <= 1 && <> · <strong>unique answer</strong></>}</p>
+          {verdict === null
+            ? <p style={{ color: 'var(--muted)', margin: 0, fontSize: 14 }}>{pack.solved[item.index] ? 'Solved — pick another.' : 'Click a groove to submit.'}</p>
+            : verdict.solved
+              ? <p style={{ margin: 0 }}><Badge tone="good">Solved! +{verdict.gain}</Badge></p>
+              : <p style={{ margin: 0 }}><Badge tone={verdict.legal ? 'warn' : 'bad'}>{verdict.legal ? `Only +${verdict.gain}, need +${verdict.need}` : (verdict.reason ?? 'Illegal wall')}</Badge></p>}
+        </Card>
+      </div>
+    </section>
   );
 }

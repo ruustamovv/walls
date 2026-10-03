@@ -39,6 +39,7 @@ export const api = {
     users: number; games: { total: number; liveInMemory: number }; ratings: number; replays: number;
     tournaments: number; clubs: number; reportsOpen: number; redis: string;
     aiBudget: number; aiSpendUsd: number;
+    fairplayOpen: number; queueDepth: number; premiumSubs: number; puzzlePacks: number;
   }>('/api/v1/admin/overview'),
   stats: () => req<{
     usersPerDay: { day: string; count: number }[];

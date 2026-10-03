@@ -39,14 +39,14 @@ export default function CommentaryBox({ gameId }: { gameId: string }) {
         </span>
       </div>
       {lines.length === 0 && note === null && !busy && (
-        <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>AI narration of the verified position, on your cue.</p>
+        <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>Live narration of the verified position, on your cue.</p>
       )}
       {busy && lines.length === 0 && <Spinner />}
       {note !== null && <p style={{ color: 'var(--muted)', fontSize: 13 }}>{note}</p>}
       <div aria-live="polite" style={{ display: 'grid', gap: 8 }}>
         {lines.map((line, i) => (
           <p key={i} style={{ margin: 0, fontSize: 14, borderTop: i === 0 ? 'none' : '1px solid var(--line)', paddingTop: i === 0 ? 0 : 8 }}>
-            <span aria-hidden style={{ marginRight: 6 }}>🎙️</span>{line}
+            <span style={{ marginRight: 6, color: 'var(--muted)', fontSize: 12, fontWeight: 800 }}>LIVE</span>{line}
           </p>
         ))}
       </div>

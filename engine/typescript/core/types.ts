@@ -24,6 +24,19 @@ export interface Wall {
   r: number;
   c: number;
   orientation: Orientation;
+  /** Seat that placed the wall (stamped by applyMove; absent on hand-built boards). */
+  by?: PlayerIndex;
+}
+
+/**
+ * Structural wall shape for geometry helpers: position + orientation only.
+ * Both Wall and MultiWall satisfy it, so shared geometry never cares who
+ * placed a wall — only where it sits.
+ */
+export interface WallShape {
+  r: number;
+  c: number;
+  orientation: Orientation;
 }
 
 /** Player identifier: 0 = top starter, 1 = bottom starter. */

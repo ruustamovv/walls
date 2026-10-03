@@ -4,13 +4,15 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { findShortestPath, getBot, quip, validateMove } from '../../../../engine/typescript/index.js';
+import { findShortestPath, getBot, quip, validateMove, winChanceFor } from '../../../../engine/typescript/index.js';
 import type { Action, GameState } from '../../../../engine/typescript/core/types.js';
 import PathMeter from '../../components/game/PathMeter.js';
 import GameBoard from '../../components/game/GameBoard.js';
 import PlayerCard from '../../components/game/PlayerCard.js';
 import MoveList from '../../components/game/MoveList.js';
 import ResultModal from '../../components/game/ResultModal.js';
+import { EvalBar } from '../../components/ui/primitives.js';
+import { LocalReviewPanel } from '../../components/game/ReviewPanel.js';
 import { Button, Card } from '../../components/ui/primitives.js';
 import { useLocalGame } from '../../hooks/useLocalGame.js';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -163,11 +165,18 @@ export default function LocalGamePage() {
   const bottomSeat = (flipped ? 1 : 0) as 0 | 1;
   const nameOfSeat = (s: 0 | 1): string => s === 0 ? bottomName : topName;
   const durationSec = done ? Math.round((Date.now() - game.startedAt) / 1000) : null;
+  const [showReview, setShowReview] = useState(false);
+  useEffect(() => { setShowReview(false); }, [mode, size, walls]);
+  const p0Path = useMemo(() => findShortestPath(state, 0).length, [state]);
+  const p1Path = useMemo(() => findShortestPath(state, 1).length, [state]);
+  const started = actions.length > 0;
+  const bottomWin = winChanceFor(bottomSeat, bottomSeat === 0 ? p0Path : p1Path, bottomSeat === 0 ? p1Path : p0Path, state.wallsRemaining[bottomSeat] ?? 0, state.wallsRemaining[topSeat] ?? 0, actions.length);
+  const topWin = Math.round((100 - bottomWin) * 10) / 10;
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
+        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Play</Link>
         <h1 style={{ margin: 0, fontSize: 22 }}>
           {mode === 'bot' ? `You vs ${ghostName ?? resolvedBot?.name ?? 'Bot'}` : 'Local game'}
         </h1>
@@ -185,12 +194,23 @@ export default function LocalGamePage() {
           </span>
         )}
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }} className="nexus-game-layout">
+      <div className="local-game-grid" style={{ display: 'grid', gridTemplateColumns: '34px minmax(0,1fr) 300px', gap: 14, alignItems: 'start' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, paddingTop: 58 }}>
+          {started ? (
+            <>
+              <EvalBar whitePct={bottomWin} label={`You ${bottomWin}% · Opp ${topWin}%`} />
+              <span className="font-mono" style={{ fontSize: 11, fontWeight: 800 }}>{bottomWin.toFixed(0)}%</span>
+            </>
+          ) : (
+            <span style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center' }}>Chance appears on move 1</span>
+          )}
+        </div>
         <div style={{ maxWidth: 640 }}>
           <div style={{ marginBottom: 10 }}>
             <PlayerCard
               name={nameOfSeat(topSeat)}
               rating={mode === 'bot' && topSeat === 1 ? (resolvedBot?.rating ?? null) : null}
+              winPct={started ? topWin : null}
               clockMs={game.clocks[topSeat]}
               clockActive={game.clockOn && !done && state.turn === topSeat}
               lowTime={game.clockOn && game.clocks[topSeat] < 30000}
@@ -216,6 +236,7 @@ export default function LocalGamePage() {
             <PlayerCard
               name={nameOfSeat(bottomSeat)}
               rating={mode === 'bot' && bottomSeat === 1 ? (resolvedBot?.rating ?? null) : null}
+              winPct={started ? bottomWin : null}
               clockMs={game.clocks[bottomSeat]}
               clockActive={game.clockOn && !done && state.turn === bottomSeat}
               lowTime={game.clockOn && game.clocks[bottomSeat] < 30000}
@@ -252,6 +273,9 @@ export default function LocalGamePage() {
                 Undo
               </Button>
               <Button variant="subtle" onClick={() => navigate('/play')}>New game</Button>
+              {done && (mode === 'bot' || mode === 'local') && actions.length >= 4 && (
+                <Button variant="ghost" onClick={() => setShowReview((v) => !v)}>{showReview ? 'Hide review' : 'Review game'}</Button>
+              )}
             </div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0' }}>
               Turn: <strong>Player {state.turn + 1}</strong> · Click a dotted tile to move, or hover a groove between tiles to place a wall.
@@ -271,7 +295,12 @@ export default function LocalGamePage() {
           onHome={() => navigate('/')}
         />
       )}
-      <style>{`@media (max-width: 900px) { .nexus-game-layout { grid-template-columns: minmax(0,1fr) !important; } }`}</style>
+      {done && showReview && actions.length >= 4 && (
+        <div style={{ marginTop: 16, maxWidth: 720 }}>
+          <LocalReviewPanel size={size} wallsPerPlayer={walls} actions={actions} />
+        </div>
+      )}
+      <style>{`@media (max-width: 900px) { .nexus-game-layout { grid-template-columns: minmax(0,1fr) !important; } } @media (max-width: 1020px){.local-game-grid{grid-template-columns:30px minmax(0,1fr)!important}.local-game-grid aside{grid-column:1/-1}}`}</style>
     </div>
   );
 }

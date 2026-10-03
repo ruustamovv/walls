@@ -13,8 +13,10 @@ import { useMultiGame } from '../../hooks/useMultiGame.js';
 import { useOnlineMultiGame } from '../../hooks/useOnlineMultiGame.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import { useSession } from '../../stores/session.js';
+import { useSettings } from '../../stores/settings.js';
 import { multiRotationDeg, rotationStyle } from '../../lib/orientation.js';
 import { estimateMultiWinShare, shortestToSide } from '../../../../engine/typescript/index.js';
+import { SCENARIOS, getScenario } from '../../../../engine/typescript/index.js';
 import { api } from '../../lib/api.js';
 import { copyText } from '../../lib/export.js';
 import { playSound } from '../../lib/sound.js';
@@ -39,6 +41,7 @@ export default function MultiGamePage() {
   const preset = presetForPlayers(players);
   const size = clampInt(params.get('size'), preset.size, 5, 21);
   const walls = clampInt(params.get('walls'), preset.wallsPerPlayer, 0, 30);
+  const scenarioId = params.get('scenario') ?? 'classic';
   const onlineGameId = params.get('online') === '1' ? params.get('gameId') : null;
   void location;
 
@@ -46,9 +49,15 @@ export default function MultiGamePage() {
     return <OnlineParty gameId={onlineGameId} />;
   }
 
-  const game = useMultiGame({ players, humans, size, wallsPerPlayer: walls });
+  // Fog needs separate screens: a local ?scenario=fog degrades to classic
+  // instead of claiming a mode the shared board cannot enforce.
+  const picked = getScenario(scenarioId) ?? getScenario('classic')!;
+  const effectiveScenarioId = picked.onlineOnly ? 'classic' : picked.id;
+  const game = useMultiGame({ players, humans, size, wallsPerPlayer: walls, scenario: effectiveScenarioId });
   const { state, actions } = game;
+  const scenario = getScenario(effectiveScenarioId) ?? getScenario('classic')!;
   const done = state.isOver;
+  const boardTheme = useSettings((s) => s.boardTheme);
   // Main player (seat 0) sits at the bottom: rotate so their side starts low.
   const [flipped, setFlipped] = useState(false);
   const rotation = multiRotationDeg(state.sides[0] ?? 'S', flipped);
@@ -60,10 +69,16 @@ export default function MultiGamePage() {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
+        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Play</Link>
         <h1 className="font-display" style={{ margin: 0, fontSize: 22 }}>
           Party · {players} players {humans < players ? `(${humans} human)` : '(all human)'}
         </h1>
+        {scenario !== null && scenario.id !== 'classic' && (
+          <Badge tone="info" >{scenario.name} — {scenario.blurb}</Badge>
+        )}
+        {picked.onlineOnly && (
+          <Badge tone="warn">Fog of war needs separate screens — playing classic on this device</Badge>
+        )}
         {game.botThinking && <span style={{ color: 'var(--muted)', fontSize: 14, animation: 'nexus-pulse 1s infinite' }}>bot thinking…</span>}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 300px', gap: 16, alignItems: 'start' }} className="nexus-game-layout">
@@ -84,7 +99,7 @@ export default function MultiGamePage() {
               </span>
             ))}
           </div>
-          <div style={rotationStyle(rotation)}>
+          <div data-board={boardTheme} style={rotationStyle(rotation)}>
             <MultiBoard
               state={state}
               humanSeats={game.humanSeats}
@@ -154,7 +169,7 @@ function OnlineParty({ gameId }: { gameId: string }) {
   if (snap === null) {
     return (
       <div>
-        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
+        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Play</Link>
         <div style={{ marginTop: 16 }}>{game.error !== null ? <p role="alert" style={{ color: 'var(--bad)' }}>{game.error}</p> : <Spinner />}</div>
       </div>
     );
@@ -162,6 +177,7 @@ function OnlineParty({ gameId }: { gameId: string }) {
 
   const mySeat = game.mySeat;
   const done = snap.isOver || snap.status === 'finished';
+  const boardTheme = useSettings((s) => s.boardTheme);
   // Main player ALWAYS at the bottom: rotate so their side starts low.
   const mySide = mySeat === null ? (snap.state.sides[0] ?? 'S') : (snap.state.sides[mySeat] ?? 'S');
   const rotation = multiRotationDeg(mySide, flipped);
@@ -187,7 +203,7 @@ function OnlineParty({ gameId }: { gameId: string }) {
   return (
     <div style={{ animation: 'quoridor-lift .3s ease' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
-        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
+        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Play</Link>
         <h1 className="font-display" style={{ margin: 0, fontSize: 20 }}>
           Party · {snap.players} players · casual
         </h1>
@@ -231,7 +247,7 @@ function OnlineParty({ gameId }: { gameId: string }) {
               </span>
             ))}
           </div>
-          <div style={rotationStyle(rotation)}>
+          <div data-board={boardTheme} style={rotationStyle(rotation)}>
             <MultiBoard
               state={{
                 ...snap.state,
@@ -342,10 +358,10 @@ function OnlineParty({ gameId }: { gameId: string }) {
           durationSec={Math.max(0, Math.round((snap.updatedAt - snap.createdAt) / 1000))}
           title={snap.teamMode && snap.winningTeam !== null
             ? (mySeat !== null && snap.teamOf?.[mySeat] === snap.winningTeam
-                ? `${TEAM_LABELS[snap.winningTeam]} wins! 🏆`
+                ? `${TEAM_LABELS[snap.winningTeam]} wins!`
                 : `${TEAM_LABELS[snap.winningTeam]} wins this one`)
             : mySeat !== null && myPlace !== null && myPlace > 0
-              ? (myPlace === 1 ? `You win the party! 🏆` : `You finished #${myPlace} of ${snap.players}`)
+              ? (myPlace === 1 ? `You win the party!` : `You finished #${myPlace} of ${snap.players}`)
               : `${nameOf(snap.winnerSeat ?? 0)} wins the party!`}
           won={snap.teamMode && snap.winningTeam !== null
             ? mySeat !== null && snap.teamOf?.[mySeat] === snap.winningTeam
@@ -526,6 +542,30 @@ export function PartyOnlineActions() {
 
   return (
     <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Scenario</span>
+        {SCENARIOS.map((s) => (
+          <button
+            key={s.id}
+            disabled={busy}
+            title={s.blurb}
+            onClick={() => {
+              setTeamMode(s.flags.teamMode === true);
+              setContinueForPlacement(s.flags.continueAfterWin === true);
+              setFog(s.flags.fog === true);
+              setChaos(s.flags.chaos === true);
+              setSiege(s.flags.siege === true);
+              if (s.seats.length > 0) setModePlayers(s.seats[s.seats.length - 1] ?? 4);
+            }}
+            style={{
+              borderRadius: 999, padding: '5px 12px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              border: '1px solid var(--line)', background: 'var(--surface-2)', color: 'var(--ink)',
+            }}
+          >
+            {s.name}
+          </button>
+        ))}
+      </div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Board</span>
         <Segmented options={['9', '13', '15', '19', '21']} active={String(size)} onChange={(t) => setSize(Number(t))} ariaLabel="party board size" />

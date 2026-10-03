@@ -12,7 +12,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { BOTS, createGame } from '../../../../engine/typescript/index.js';
+import { BOTS, SCENARIOS, createGame } from '../../../../engine/typescript/index.js';
 import { api, clientRegion } from '../../lib/api.js';
 import { copyText } from '../../lib/export.js';
 import { timeControlName } from '../../lib/format.js';
@@ -29,23 +29,25 @@ import {
   Segmented,
 } from '../../components/ui/primitives.js';
 import { AuthModal } from '../../components/auth/AuthModal.js';
+import { Icon, type IconName } from '../../components/ui/icons.js';
 import GameBoard from '../../components/game/GameBoard.js';
 import { PartyOnlineActions } from './MultiGamePage.js';
 
-const TCS = ['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5'] as const;
+const TCS = ['1+0', '1+1', '2+1', '3+0', '3+1', '3+2', '5+0', '5+1', '10+0', '10+5', '15+10'] as const;
 type Tc = (typeof TCS)[number];
 
 const BOT_CLOCKS = ['none', '1+0', '3+2', '10+0'] as const;
 type BotClock = (typeof BOT_CLOCKS)[number];
 
-type Cat = 'bots' | 'online' | 'friend' | 'party';
+type Cat = 'bots' | 'online' | 'friend' | 'party' | 'coach';
 type Win = null | Cat;
 
-const CATS: { id: Cat; label: string; blurb: string; needsAccount: boolean }[] = [
-  { id: 'bots', label: 'Bots', blurb: '19 engine tiers · offline', needsAccount: false },
-  { id: 'online', label: 'Online', blurb: 'Bullet · Blitz · Rapid', needsAccount: false },
-  { id: 'friend', label: 'Friend link', blurb: 'Private 1v1 · unique key', needsAccount: true },
-  { id: 'party', label: 'Party', blurb: '2–6 seats · teams', needsAccount: true },
+const CATS: { id: Cat; label: string; blurb: string; icon: IconName; needsAccount: boolean; to?: string }[] = [
+  { id: 'online', label: 'Online', blurb: 'Same-level opponents', icon: 'bolt', needsAccount: false },
+  { id: 'bots', label: 'Bots', blurb: 'Beginner to master', icon: 'bot', needsAccount: false },
+  { id: 'coach', label: 'Coach', blurb: 'Learn by playing', icon: 'coach', needsAccount: false, to: '/learn' },
+  { id: 'friend', label: 'Friend', blurb: 'Invite with a link', icon: 'friend', needsAccount: true },
+  { id: 'party', label: 'Variants', blurb: 'Party modes & scenarios', icon: 'dice', needsAccount: true },
 ];
 
 function clockToParts(clock: BotClock): { clock: number; inc: number } {
@@ -61,10 +63,15 @@ export default function PlayPage() {
 
   const cat = (params.get('cat') as Cat | null) ?? 'online';
   const openWin = (c: Cat): void => {
+    const entry = CATS.find((x) => x.id === c);
+    if (entry?.to !== undefined) {
+      navigate(entry.to);
+      return;
+    }
     const next = new URLSearchParams(params);
     next.set('cat', c);
     setParams(next, { replace: true });
-    setWin(c);
+    setWin(c as Win);
   };
 
   const [win, setWin] = useState<Win>(null);
@@ -72,6 +79,7 @@ export default function PlayPage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchDesc, setSearchDesc] = useState('');
+  const [queueInfo, setQueueInfo] = useState<{ position?: number; poolSize?: number; window?: number } | null>(null);
 
   // Static, real, empty board. It becomes a game only after match/bot start.
   const [lobbyBoard] = useState(() => createGame({ size: 9, wallsPerPlayer: 10 }));
@@ -87,6 +95,8 @@ export default function PlayPage() {
           playSound('match');
           toast('good', 'Match found — good luck!');
           navigate(`/game/${res.gameId}`);
+        } else if (!cancelled && res.status === 'queued') {
+          setQueueInfo({ position: res.position, poolSize: res.poolSize, window: res.window });
         }
       } catch {
         /* keep polling */
@@ -115,6 +125,7 @@ export default function PlayPage() {
       return;
     }
     setSearching(true);
+    setQueueInfo(null);
     setSearchDesc(`${timeControlName(tc)} · ${mode}`);
     try {
       const region = clientRegion();
@@ -149,6 +160,22 @@ export default function PlayPage() {
   }
 
   const isGuest = user === null || user.guest === true;
+  const [myRatings, setMyRatings] = useState<{ mode: string; rating: number }[] | null>(null);
+
+  useEffect(() => {
+    if (user === null || user.guest === true) {
+      setMyRatings(null);
+      return;
+    }
+    let cancelled = false;
+    api.profile(user.username)
+      .then((p) => {
+        if (cancelled) return;
+        setMyRatings(p.ratings.filter((r) => ['bullet', 'blitz', 'rapid'].includes(r.mode)).map((r) => ({ mode: r.mode, rating: r.rating })));
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [user]);
 
   return (
     <div className="play-lobby">
@@ -161,7 +188,7 @@ export default function PlayPage() {
           </div>
         </div>
         <div className="play-board-frame">
-          <GameBoard state={lobbyBoard} humanSeats={[]} interactive={false} onMove={() => undefined} onWall={() => undefined} />
+          <GameBoard state={lobbyBoard} humanSeats={[]} interactive={false} onMove={() => undefined} onWall={() => undefined} coords />
         </div>
         <div className="play-player-row">
           <Avatar name={user?.username ?? 'You'} size={30} />
@@ -180,10 +207,19 @@ export default function PlayPage() {
       <div className="play-chooser">
         <Card>
           <h2 className="font-display" style={{ margin: '0 0 4px', fontSize: 17 }}>Choose your game</h2>
+          {myRatings !== null && myRatings.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+              {myRatings.map((r) => (
+                <span key={r.mode} style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'capitalize' }}>
+                  {r.mode} <strong className="font-mono" style={{ color: 'var(--ink)', fontSize: 13 }}>{r.rating}</strong>
+                </span>
+              ))}
+            </div>
+          )}
           <p style={{ margin: '0 0 12px', fontSize: 13, color: 'var(--muted)' }}>
             {isGuest ? 'Guests play bots and casual matchmaking. Ranked, friends and party need an account.' : 'Pick a table — the board stays right here.'}
           </p>
-          <div className="play-cat-grid">
+          <div style={{ display: 'grid', gap: 8 }}>
             {CATS.map((c) => {
               const locked = c.needsAccount && needsAccount();
               return (
@@ -200,12 +236,21 @@ export default function PlayPage() {
                     openWin(c.id);
                   }}
                   title={locked ? 'Needs an account' : c.blurb}
+                  style={{ display: 'flex', gap: 12, alignItems: 'center', textAlign: 'left' }}
                 >
-                  <span className="play-cat-label">{c.label}{locked ? ' 🔒' : ''}</span>
-                  <span className="play-cat-blurb">{c.blurb}</span>
+                  <span style={{ color: 'var(--primary)' }}><Icon name={c.icon} size={26} /></span>
+                  <span style={{ flex: 1 }}>
+                    <span className="play-cat-label" style={{ display: 'block' }}>{c.label}</span>
+                    <span className="play-cat-blurb">{c.blurb}{locked ? ' · login' : ''}</span>
+                  </span>
+                  {locked && <span style={{ color: 'var(--muted)' }} title="Needs an account"><Icon name="lock" size={16} /></span>}
                 </button>
               );
             })}
+          </div>
+          <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 13 }}>
+            <Link to="/profile/me" style={{ color: 'var(--muted)', display: 'inline-flex', gap: 6, alignItems: 'center' }}><Icon name="archive" size={15} /> Archive</Link>
+            <Link to="/leaderboard" style={{ color: 'var(--muted)', display: 'inline-flex', gap: 6, alignItems: 'center' }}><Icon name="chart" size={15} /> Leaderboard</Link>
           </div>
         </Card>
         <Card>
@@ -215,6 +260,27 @@ export default function PlayPage() {
             <li>Online matchmaking pairs Bullet, Blitz and Rapid on 15×15.</li>
             <li>Friend links are unique per game — first to join plays.</li>
           </ul>
+        </Card>
+        <Card>
+          <h3 style={{ margin: '0 0 8px', fontSize: 14 }}>Quick bots</h3>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {['rookie', 'architect', 'apex'].map((id) => {
+              const b = BOTS.find((x) => x.id === id);
+              if (b === undefined) return null;
+              return (
+                <div key={id} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <Avatar name={b.name} size={30} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, fontSize: 13 }}>{b.name}</div>
+                    <div className="font-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>★ {b.rating}</div>
+                  </div>
+                  <Link to={`/play/bot?bot=${b.id}`}>
+                    <Button size="sm">Play</Button>
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
         </Card>
       </div>
 
@@ -229,6 +295,7 @@ export default function PlayPage() {
           searchError={searchError}
           onPlay={(tc, mode) => void startSearch(tc, mode)}
           onNeedAccount={() => { setWin(null); setAuthOpen(true); }}
+          onOpen={(c) => setWin(c)}
           onClose={() => setWin(null)}
         />
       )}
@@ -248,6 +315,13 @@ export default function PlayPage() {
           <p style={{ color: 'var(--muted)' }}>
             {searchDesc} · widening… <span className="nexus-pulse">●</span>
           </p>
+          {queueInfo !== null && (queueInfo.poolSize !== undefined || queueInfo.window !== undefined) && (
+            <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+              {queueInfo.poolSize !== undefined && <>#{queueInfo.position ?? 1} of {queueInfo.poolSize} waiting</>}
+              {queueInfo.poolSize !== undefined && queueInfo.window !== undefined && ' · '}
+              {queueInfo.window !== undefined && <>rating range ±{queueInfo.window}</>}
+            </p>
+          )}
           <Button variant="ghost" onClick={() => void cancelSearch()}>Cancel</Button>
         </Modal>
       )}
@@ -315,51 +389,150 @@ function BotsWindow({ onClose }: { onClose: () => void }) {
   );
 }
 
-function OnlineWindow({ isGuest, searchError, onPlay, onNeedAccount, onClose }: {
+function OnlineWindow({ isGuest, searchError, onPlay, onNeedAccount, onOpen, onClose }: {
   isGuest: boolean;
   searchError: string | null;
   onPlay: (tc: Tc, mode: 'ranked' | 'casual') => void;
   onNeedAccount: () => void;
+  onOpen: (c: 'friend' | 'party') => void;
   onClose: () => void;
 }) {
   const [tc, setTc] = useState<Tc>('3+1');
-  const [mode, setMode] = useState<'ranked' | 'casual'>('casual');
+  const [ranked, setRanked] = useState(true);
+  const [variant, setVariant] = useState<'classic' | 'standard'>('standard');
+  const [stats, setStats] = useState<{ users: number; gamesToday: number } | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    api.publicStats().then((s) => { if (live) setStats(s); }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+
+  const mode = ranked && !isGuest ? 'ranked' : 'casual';
+  const groupOf = (t: Tc): string =>
+    ['1+0', '1+1', '2+1'].includes(t) ? 'Bullet'
+    : ['3+0', '3+1', '3+2'].includes(t) ? 'Blitz'
+    : ['5+0', '5+1'].includes(t) ? 'Rapid' : 'Classic';
+
+  function pickVariant(v: 'classic' | 'standard'): void {
+    setVariant(v);
+    if (v === 'classic') {
+      setRanked(false);
+    } else if (!isGuest) {
+      setRanked(true);
+    }
+  }
 
   return (
     <Modal title="Play online" onClose={onClose}>
-      <div className="play-form-row">
-        <span className="play-key">Speed</span>
-        <Segmented options={TCS as unknown as string[]} active={tc} onChange={(t) => setTc(t as Tc)} ariaLabel="time control" />
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <button className="play-tab is-active">New game</button>
+        <Link to="/profile/me" className="play-tab" style={{ textAlign: 'center', textDecoration: 'none', lineHeight: '30px' }}>Games</Link>
+        <Link to="/leaderboard" className="play-tab" style={{ textAlign: 'center', textDecoration: 'none', lineHeight: '30px' }}>Players</Link>
       </div>
-      <p className="play-note" style={{ textAlign: 'left', marginTop: 0 }}>
-        {['1+0', '1+1'].includes(tc) ? 'Bullet — under 3 minutes.' : ['3+0', '3+1', '5+0', '5+1'].includes(tc) ? 'Blitz — fast and sharp.' : 'Rapid — time to think.'}
-      </p>
       <div className="play-form-row">
+        <span className="play-key" style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Icon name="bolt" size={16} /> {tc} ({groupOf(tc)})</span>
+      </div>
+      <p className="play-note" style={{ textAlign: 'left', marginTop: 0 }}>Variant</p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        {(['classic', 'standard'] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => {
+              if (v === 'standard' && isGuest) {
+                onNeedAccount();
+                return;
+              }
+              pickVariant(v);
+            }}
+            style={{
+              flex: 1, borderRadius: 10, padding: '8px 0', fontWeight: 800, fontSize: 13,
+              border: variant === v ? '2px solid var(--good)' : '1px solid var(--line)',
+              background: variant === v ? 'var(--good-soft)' : 'var(--surface-2)', color: 'var(--ink)', cursor: 'pointer',
+            }}
+          >
+            {v === 'classic' ? 'Classic 9×9' : 'Standard 15×15'}
+          </button>
+        ))}
+      </div>
+      <div className="play-form-row" style={{ justifyContent: 'space-between' }}>
         <span className="play-key">Rated</span>
-        <Segmented options={['ranked', 'casual'] as const} active={mode} onChange={setMode} ariaLabel="mode" />
+        <button
+          role="switch"
+          aria-checked={ranked && !isGuest}
+          aria-label="rated"
+          onClick={() => {
+            if (isGuest) {
+              onNeedAccount();
+              return;
+            }
+            setRanked((r) => !r);
+          }}
+          style={{
+            width: 52, height: 30, borderRadius: 999, border: '1px solid var(--line)',
+            background: ranked && !isGuest ? 'var(--good)' : 'var(--surface-2)', position: 'relative', flexShrink: 0,
+          }}
+        >
+          <span aria-hidden style={{
+            position: 'absolute', top: 3, left: ranked && !isGuest ? 24 : 4, width: 22, height: 22,
+            borderRadius: '50%', background: '#fff', transition: 'left var(--dur-fast) ease',
+          }} />
+        </button>
       </div>
-      {mode === 'ranked' && (
+      {isGuest && (
         <p className="play-note" style={{ textAlign: 'left' }}>
-          {isGuest
-            ? <>Ranked needs an account — <button className="play-link" onClick={onNeedAccount}>register</button> or play casual now.</>
-            : '15×15 arena · 20 walls each · Glicko-2 rated.'}
+          Guests play casual — <button className="play-link" onClick={onNeedAccount}>register</button> for rated.
         </p>
       )}
+      {(['Bullet', 'Blitz', 'Rapid', 'Classic'] as const).map((g) => (
+        <div key={g} style={{ marginBottom: 8 }}>
+          <div className="play-key" style={{ marginBottom: 4, display: 'flex', gap: 6, alignItems: 'center' }}>
+            <Icon name={g === 'Bullet' ? 'rocket' : g === 'Blitz' ? 'bolt' : g === 'Rapid' ? 'clock' : 'shield'} size={15} /> {g}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {TCS.filter((t) => groupOf(t) === g).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTc(t)}
+                style={{
+                  flex: 1, borderRadius: 10, padding: '8px 0', fontWeight: 800, fontSize: 13,
+                  border: tc === t ? '2px solid var(--good)' : '1px solid var(--line)',
+                  background: tc === t ? 'var(--good-soft)' : 'var(--surface-2)', color: 'var(--ink)', cursor: 'pointer',
+                }}
+              >
+                {t.replace('+0', ' min').replace('+', ' + ')}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       {searchError !== null && <p role="alert" className="play-error">{searchError}</p>}
       <Button
         size="lg"
-        style={{ width: '100%' }}
+        style={{ width: '100%', background: 'var(--good)', borderColor: 'var(--good)', marginTop: 4 }}
         onClick={() => {
-          if (mode === 'ranked' && isGuest) {
+          if (ranked && isGuest) {
             onNeedAccount();
             return;
           }
           onPlay(tc, mode);
         }}
       >
-        Play {timeControlName(tc)}{mode === 'ranked' && !isGuest ? ' · ranked' : ''}
+        Play
       </Button>
-      <p className="play-note">{isGuest ? 'You will play as a guest (casual, unrated).' : 'Matchmaking widens the rating range while you wait.'}</p>
+      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+        <button className="play-cat" onClick={() => onOpen('friend')} style={{ display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left' }}>
+          <span style={{ color: 'var(--primary)' }}><Icon name="friend" size={24} /></span>
+          <span><strong>Play a friend</strong><br /><span className="play-cat-blurb">Private link game</span></span>
+        </button>
+        <button className="play-cat" onClick={() => onOpen('party')} style={{ display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left' }}>
+          <span style={{ color: 'var(--primary)' }}><Icon name="dice" size={24} /></span>
+          <span><strong>Party & variants</strong><br /><span className="play-cat-blurb">2–6 seats, scenarios</span></span>
+        </button>
+      </div>
+      {stats !== null && stats.users > 0 && (
+        <p className="play-note">{stats.users.toLocaleString()} players · {stats.gamesToday.toLocaleString()} games today</p>
+      )}
     </Modal>
   );
 }
@@ -438,6 +611,10 @@ function FriendWindow({ onClose }: { onClose: () => void }) {
 
 function PartyWindow({ onClose }: { onClose: () => void }) {
   const [tab, setTab] = useState<'online' | 'local'>('online');
+  const [scenarioId, setScenarioId] = useState('classic');
+  const scenario = SCENARIOS.find((s) => s.id === scenarioId) ?? SCENARIOS[0]!;
+  const localScenarios = SCENARIOS.filter((s) => !s.onlineOnly);
+  const seatOptions = scenario.seats.length > 0 ? scenario.seats : [2, 3, 4, 5, 6];
   return (
     <Modal title="Party games" onClose={onClose}>
       <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
@@ -454,24 +631,33 @@ function PartyWindow({ onClose }: { onClose: () => void }) {
         </>
       ) : (
         <>
-          <h3 className="play-sub">Free-for-all vs bots</h3>
+          <div className="play-form-row">
+            <span className="play-key">Scenario</span>
+            <select value={scenarioId} onChange={(e) => setScenarioId(e.target.value)} className="play-select" aria-label="scenario">
+              {localScenarios.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+          </div>
+          <p className="play-note" style={{ textAlign: 'left', marginTop: 0 }}>{scenario.blurb}</p>
+          <h3 className="play-sub">Seats — you + bots on this device</h3>
           <div className="play-grid2">
-            {[2, 3, 4, 5, 6].map((n) => (
-              <Link key={n} to={`/play/multi?players=${n}&humans=1`} onClick={onClose}>
-                <Button variant="ghost" style={{ width: '100%' }}>{n === 6 ? '1v5 chaos' : `${n} players`}</Button>
+            {seatOptions.map((n) => (
+              <Link key={n} to={`/play/multi?players=${n}&humans=1&scenario=${scenario.id}`} onClick={onClose}>
+                <Button variant="ghost" style={{ width: '100%' }}>{n === 6 && scenario.id === 'classic' ? '1v5 chaos' : `${n} players`}</Button>
               </Link>
             ))}
           </div>
           <h3 className="play-sub">Teams · pass &amp; play</h3>
           <div className="play-grid2">
-            <Link to="/play/multi?players=4&humans=4" onClick={onClose}>
+            <Link to="/play/multi?players=4&humans=4&scenario=teams" onClick={onClose}>
               <Button variant="ghost" style={{ width: '100%' }}>2v2 teams</Button>
             </Link>
-            <Link to="/play/multi?players=2&humans=2" onClick={onClose}>
+            <Link to="/play/multi?players=2&humans=2&scenario=classic" onClick={onClose}>
               <Button variant="ghost" style={{ width: '100%' }}>1v1 pass &amp; play</Button>
             </Link>
           </div>
-          <p className="play-note">Bigger than 3v3 does not fit a 6-seat table — those stay locked.</p>
+          <p className="play-note">Fog of war needs separate screens — it lives on online tables. Bigger than 3v3 does not fit a 6-seat table.</p>
         </>
       )}
     </Modal>

@@ -38,6 +38,7 @@ const SettingsPage = lazy(() => import('../pages/settings/SettingsPage.js'));
 import { BRAND } from '../lib/brand.js';
 import { useT } from '../lib/i18n.js';
 import { useSession } from '../stores/session.js';
+import { useSettings } from '../stores/settings.js';
 import { Avatar, Logo } from '../components/ui/primitives.js';
 import { DevTodoDrawer } from '../components/dev/DevTodoDrawer.js';
 import { LoginWindow } from '../components/auth/LoginWindow.js';
@@ -357,6 +358,10 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const openLogin = useCallback(() => setLoginOpen(true), []);
+  const location = useLocation();
+  const appBg = useSettings((s) => s.appBackground);
+  // Auth pages stand alone: no sidebar, no topbar — just the form.
+  const bare = /^\/(login|signup|forgot-password|reset-password|verify-email)/.test(location.pathname);
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -374,7 +379,7 @@ export default function App() {
   }, [me === null]);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex' }}>
+    <div data-appbg={appBg} style={{ minHeight: '100vh', display: 'flex' }}>
       <a
         href="#main"
         style={{
@@ -388,10 +393,10 @@ export default function App() {
       </a>
       <Telemetry />
       <Broadcast />
-      <Sidebar openLogin={openLogin} />
+      {!bare && <Sidebar openLogin={openLogin} />}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-        <TopBar onMenu={() => setDrawer(true)} openLogin={openLogin} />
-        <main id="main" style={{ maxWidth: 1280, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
+        {!bare && <TopBar onMenu={() => setDrawer(true)} openLogin={openLogin} />}
+        <main id="main" style={bare ? { width: '100%', flex: 1, display: 'flex' } : { maxWidth: 1280, margin: '0 auto', padding: 20, width: '100%', flex: 1, paddingBottom: 90 }} className="nexus-main">
           <Suspense fallback={<div style={{ padding: 24 }}><Spinner /></div>}>
           <Routes>
             <Route path="/" element={<HomePage />} />
@@ -432,7 +437,7 @@ export default function App() {
         </main>
       </div>
       <LoginWindow open={loginOpen} next="/play" onClose={() => setLoginOpen(false)} />
-      <BottomTabs />
+      {!bare && <BottomTabs />}
       <Toaster />
       <DevTodoDrawer />
       {drawer && (

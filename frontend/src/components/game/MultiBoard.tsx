@@ -65,6 +65,7 @@ export default memo(function MultiBoard({ state, humanSeats, interactive, onMove
     [state, canAct],
   );
   const placedSet = useMemo(() => new Set(state.walls.map(wallKey)), [state.walls]);
+  const placedBy = useMemo(() => new Map(state.walls.map((w) => [wallKey(w), w.by] as const)), [state.walls]);
 
   const tracks = useMemo(() => {
     const parts: string[] = [];
@@ -87,6 +88,9 @@ export default memo(function MultiBoard({ state, humanSeats, interactive, onMove
     const placed = placedSet.has(key);
     const isHover = hover === key;
     const legal = wallSet.has(key);
+    // Seat-colored walls: every seat reads its own share at a glance.
+    const owner = placed ? placedBy.get(key) : undefined;
+    const placedColor = owner === undefined ? 'var(--wall)' : (SEAT_COLORS[owner % SEAT_COLORS.length] as string);
     return (
       <button
         key={key}
@@ -102,7 +106,7 @@ export default memo(function MultiBoard({ state, humanSeats, interactive, onMove
           gridColumn: col as number | string,
           border: 'none', borderRadius: 4, padding: 0,
           background: placed
-            ? 'var(--wall)'
+            ? placedColor
             : isHover && canAct
               ? legal ? 'var(--wall-ghost-ok)' : 'var(--wall-ghost-bad)'
               : 'transparent',

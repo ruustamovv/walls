@@ -17,7 +17,7 @@ import {
   validateDesign,
 } from '../modules/architect/service.js';
 import { __resetAuthServiceForTests } from '../modules/auth/service.js';
-import { getMongoDb, closeMongo, __resetMongoForTests } from '../database/mongodb/client.js';
+import { closeMongo, __resetMongoForTests } from '../database/mongodb/client.js';
 import type { FastifyInstance } from 'fastify';
 
 let mongod: MongoMemoryServer | null = null;

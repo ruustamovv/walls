@@ -12,9 +12,13 @@ import { getMongoDb, closeMongo, __resetMongoForTests } from '../database/mongod
 import { UserRepository } from '../database/mongodb/repositories/user.repository.js';
 import { __resetAuthServiceForTests } from '../modules/auth/service.js';
 import {
+  detectEngineCorrelation,
   detectRapidMoveStreak,
   detectSamePairWins,
   detectSandbagging,
+  ENGINE_CORR_MIN_ACCURACY,
+  ENGINE_CORR_MIN_BEST_RATE,
+  ENGINE_CORR_MIN_MOVES,
   ModerationCaseRepository,
   RAPID_MOVE_STREAK_MIN,
   SAME_PAIR_WINS_MIN,
@@ -216,5 +220,19 @@ describe('farming pattern produces cases, never bans (HTTP)', () => {
     assert.equal(farmer.status, 'ACTIVE');
     const newGame = await post('/api/v1/games', { timeControl: '3+0' }, farmerCookie);
     assert.equal(newGame.status, 200);
+  });
+});
+
+describe('engine correlation (pure)', () => {
+  it('flags sustained top-engine play, ignores short/weak samples', () => {
+    const hit = detectEngineCorrelation({ accuracy: 98, bestRate: 0.9, moves: 40 });
+    assert.ok(hit !== null);
+    assert.equal(hit.kind, 'engine-correlation');
+    assert.ok(hit.summary.includes('98'));
+    // Short game: no flag no matter how clean.
+    assert.equal(detectEngineCorrelation({ accuracy: 100, bestRate: 1, moves: ENGINE_CORR_MIN_MOVES - 1 }), null);
+    // One bar missed: no flag.
+    assert.equal(detectEngineCorrelation({ accuracy: ENGINE_CORR_MIN_ACCURACY - 1, bestRate: 0.95, moves: 40 }), null);
+    assert.equal(detectEngineCorrelation({ accuracy: 99, bestRate: ENGINE_CORR_MIN_BEST_RATE - 0.01, moves: 40 }), null);
   });
 });

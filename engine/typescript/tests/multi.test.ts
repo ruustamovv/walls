@@ -26,7 +26,6 @@ import {
   MULTI_PRESETS,
   type MultiAction,
   type MultiPos,
-  type MultiState,
 } from '../multi/index.js';
 import { isBlockedBetween } from '../index.js';
 
@@ -611,5 +610,26 @@ describe('multi: chaos + siege (MLT-009)', () => {
     assert.notEqual(hashMultiState(plain), hashMultiState(siege));
     assert.notEqual(hashMultiState(chaos), hashMultiState(siege));
     assert.equal(hashMultiState(chaos), hashMultiState(createMultiGame({ ...base, chaos: true })));
+  });
+});
+
+describe('multi: scenarios (SCE-001)', () => {
+  it('catalog bundles only real engine flags', async () => {
+    const { SCENARIOS, getScenario, configForScenario, createMultiGame } = await import('../index.js');
+    assert.ok(SCENARIOS.length >= 5);
+    assert.equal(getScenario('nope'), null);
+    for (const s of SCENARIOS) {
+      assert.ok(s.id.length > 0 && s.name.length > 0 && s.blurb.length > 0);
+      const cfg = configForScenario({ players: 4, size: 9, wallsPerPlayer: 5 }, s.id);
+      // Fog is online-only: never auto-applied to a local 4P config blindly is
+      // fine — the flag is honest either way; the UI keeps it off local.
+      const st = createMultiGame({ ...cfg, ...(s.flags.chaos === true ? { seed: 7 } : {}) });
+      assert.equal(st.fog, s.flags.fog === true);
+      assert.equal(st.chaos, s.flags.chaos === true);
+      assert.equal(st.siege, s.flags.siege === true);
+      assert.equal(st.continueAfterWin, s.flags.continueAfterWin === true);
+    }
+    // Unknown scenario id leaves the config untouched.
+    assert.deepEqual(configForScenario({ players: 4, size: 9, wallsPerPlayer: 5 }, 'nope'), { players: 4, size: 9, wallsPerPlayer: 5 });
   });
 });

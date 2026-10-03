@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button, Card, Tabs, TextInput, Avatar, Badge } from '../../components/ui/primitives.js';
 import { setThemeNow } from '../../hooks/useTheme.js';
-import { useSettings, type BoardTheme, type PawnSet, type ThemeChoice } from '../../stores/settings.js';
+import { useSettings, type AppBackground, type BoardTheme, type PawnSet, type ThemeChoice } from '../../stores/settings.js';
 import { playSound } from '../../lib/sound.js';
 import { api } from '../../lib/api.js';
 import { useSession } from '../../stores/session.js';
@@ -25,7 +25,7 @@ function FramesRow() {
   return (
     <Row
       label="Profile frame"
-      body="Purely cosmetic — never affects gameplay."
+      body="Cosmetic only."
       control={(
         <span style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {frames.map((f) => (
@@ -87,13 +87,14 @@ function Toggle({ on, onFlip, label }: { on: boolean; onFlip: () => void; label:
 
 const THEMES: ThemeChoice[] = ['auto', 'site', 'arena', 'slate', 'warm', 'contrast'];
 
-  const BOARD_THEMES: BoardTheme[] = ['midnight', 'paper', 'ember', 'quoridor'];
+const BOARD_THEMES: BoardTheme[] = ['midnight', 'paper', 'ember', 'quoridor', 'forest', 'ocean', 'desert', 'royal'];
 const PAWN_SETS: PawnSet[] = ['classic', 'ring'];
+const BACKGROUNDS: AppBackground[] = ['nebula', 'plain'];
 
 export default function SettingsPage() {
   const {
-    theme, sound, volume, showCoords, boardTheme, pawnSet, confirmWall,
-    setTheme, setSound, setVolume, setShowCoords, setBoardTheme, setPawnSet, setConfirmWall,
+    theme, sound, volume, showCoords, boardTheme, pawnSet, confirmWall, appBackground,
+    setTheme, setSound, setVolume, setShowCoords, setBoardTheme, setPawnSet, setConfirmWall, setAppBackground,
   } = useSettings();
   return (
     <div style={{ display: 'grid', gap: 16, maxWidth: 640 }}>
@@ -102,17 +103,22 @@ export default function SettingsPage() {
         <h3 className="font-display" style={{ margin: '0 0 4px' }}>Appearance & sound</h3>
         <Row
           label="Theme"
-          body="Auto follows the route: light site, dark arena."
+          body="Auto follows the page."
           control={<Tabs tabs={THEMES} active={theme} onChange={(t) => { setTheme(t); setThemeNow(t === 'auto' ? 'site' : t); }} />}
         />
         <Row
+          label="Background"
+          body="Starfield or flat."
+          control={<Tabs tabs={BACKGROUNDS} active={appBackground} onChange={setAppBackground} />}
+        />
+        <Row
           label="Sound effects"
-          body="Move hops, wall plunks, clocks and results. Fully mutable."
+          body="Moves, walls, clocks."
           control={<Toggle on={sound} onFlip={() => { setSound(!sound); if (!sound) setTimeout(() => playSound('notify'), 50); }} label="Sound effects" />}
         />
         <Row
           label="Volume"
-          body="Master game-sound level."
+          body="Game-sound level."
           control={
             <input
               type="range" min={0} max={100} value={volume}
@@ -123,22 +129,22 @@ export default function SettingsPage() {
         />
         <Row
           label="Board theme"
-          body="Arena felt for every board."
+          body="Every board."
           control={<Tabs tabs={BOARD_THEMES} active={boardTheme} onChange={setBoardTheme} />}
         />
         <Row
           label="Pawn set"
-          body="Classic discs or hollow rings."
+          body="Discs or rings."
           control={<Tabs tabs={PAWN_SETS} active={pawnSet} onChange={setPawnSet} />}
         />
         <Row
           label="Confirm walls"
-          body="Two-tap wall placement — safer on touch screens."
+          body="Two-tap placement for touch."
           control={<Toggle on={confirmWall} onFlip={() => setConfirmWall(!confirmWall)} label="Confirm walls" />}
         />
         <Row
           label="Board coordinates"
-          body="Show file/rank hints on hover titles (full coordinate labels arrive with the analysis board)."
+          body="File/rank hints."
           control={<Toggle on={showCoords} onFlip={() => setShowCoords(!showCoords)} label="Board coordinates" />}
         />
         <FramesRow />
@@ -156,8 +162,7 @@ export default function SettingsPage() {
       <Card>
         <h3 className="font-display" style={{ margin: '0 0 4px' }}>Accessibility</h3>
         <p style={{ color: 'var(--muted)', fontSize: 14, margin: 0 }}>
-          The app honors your OS reduced-motion setting everywhere. All dialogs close with Escape.
-          Board cells expose screen-reader labels; a full text-move list accompanies every game.
+          Honors OS reduced-motion. Dialogs close with Escape. Every game ships a text move list.
         </p>
       </Card>
     </div>
@@ -231,37 +236,37 @@ function AccountCard() {
         <>
           <Row
             label="Public ratings"
-            body="Off hides your ratings from other players' views."
+            body="Off hides ratings from others."
             control={<Toggle on={prefs.showRating} onFlip={() => void save({ showRating: !prefs.showRating })} label="Public ratings" />}
           />
           <Row
             label="Challenges"
-            body="Off declines all direct game challenges."
+            body="Off declines direct challenges."
             control={<Toggle on={prefs.allowChallenges} onFlip={() => void save({ allowChallenges: !prefs.allowChallenges })} label="Challenges" />}
           />
           <Row
             label="Who can chat with me"
-            body="Friends-only restricts game chat to befriended opponents."
+            body="Restrict game chat to friends."
             control={<Tabs tabs={(['everyone', 'friends', 'nobody'] as const)} active={prefs.chatScope as 'everyone' | 'friends' | 'nobody'} onChange={(v) => void save({ chatScope: v })} />}
           />
           <Row
             label="Profile visibility"
-            body="Private hides you from search and strangers; friends limits to friends."
+            body="Private hides you from strangers."
             control={<Tabs tabs={(['public', 'friends', 'private'] as const)} active={prefs.profileVisibility as 'public' | 'friends' | 'private'} onChange={(v) => void save({ profileVisibility: v })} />}
           />
           <Row
             label="Game history visibility"
-            body="Who can see your recent games and form stats."
+            body="Who sees your recent games."
             control={<Tabs tabs={(['public', 'friends', 'private'] as const)} active={prefs.historyVisibility as 'public' | 'friends' | 'private'} onChange={(v) => void save({ historyVisibility: v })} />}
           />
           <Row
             label="Match notifications"
-            body="Inbox ping when matchmaking pairs you."
+            body="Ping when paired."
             control={<Toggle on={prefs.notifyMatches} onFlip={() => void save({ notifyMatches: !prefs.notifyMatches })} label="Match notifications" />}
           />
           <Row
             label="Result notifications"
-            body="Inbox ping when your games finish."
+            body="Ping when games finish."
             control={<Toggle on={prefs.notifyResults} onFlip={() => void save({ notifyResults: !prefs.notifyResults })} label="Result notifications" />}
           />
         </>

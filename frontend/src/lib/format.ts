@@ -14,12 +14,15 @@ export function formatClock(ms: number): string {
 const TC_NAMES: Record<string, string> = {
   '1+0': 'Bullet 1+0',
   '1+1': 'Bullet 1+1',
+  '2+1': 'Bullet 2+1',
   '3+0': 'Blitz 3+0',
   '3+1': 'Blitz 3+1',
+  '3+2': 'Blitz 3+2',
   '5+0': 'Rapid 5+0',
   '5+1': 'Rapid 5+1',
   '10+0': 'Classic 10+0',
   '10+5': 'Classic 10+5',
+  '15+10': 'Classic 15+10',
 };
 
 export function timeControlName(id: string): string {
@@ -28,10 +31,10 @@ export function timeControlName(id: string): string {
 
 /** Rating bucket matching the backend (finish.ts ratingModeFor). */
 export function ratingModeFor(timeControlId: string): string {
-  if (timeControlId.startsWith('1+')) return 'bullet';
+  if (timeControlId.startsWith('1+') || timeControlId.startsWith('2+')) return 'bullet';
   if (timeControlId.startsWith('3+')) return 'blitz';
   if (timeControlId.startsWith('5+')) return 'rapid';
-  if (timeControlId.startsWith('10+')) return 'classic';
+  if (timeControlId.startsWith('10+') || timeControlId.startsWith('15+')) return 'classic';
   return 'casual';
 }
 

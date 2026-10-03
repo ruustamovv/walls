@@ -69,7 +69,7 @@ export const GameVisibilitySchema = z.enum(['public', 'friends', 'unlisted', 'pr
 export const CreateGameSchema = z.object({
   boardSize: BoardSizeSchema.default(9),
   wallsPerPlayer: z.number().int().min(0).max(20).default(10),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
+  timeControl: z.enum(['1+0', '1+1', '2+1', '3+0', '3+1', '3+2', '5+0', '5+1', '10+0', '10+5', '15+10']).default('3+0'),
   opponentId: z.string().min(1).max(64).optional(), // domain ID = hex string (see database/mongodb/ids.ts), never a raw ObjectId
   visibility: GameVisibilitySchema.optional(),
   // NOTE: rating / clock fields from client are ignored server-side.
@@ -80,7 +80,7 @@ export type CreateGameInput = z.infer<typeof CreateGameSchema>;
 // ── Matchmaking ──────────────────────────────────────
 export const MatchmakingJoinSchema = z.object({
   mode: z.enum(['blitz', 'rapid', 'casual', 'ranked']).default('ranked'),
-  timeControl: z.enum(['1+0', '1+1', '3+0', '3+1', '5+0', '5+1', '10+0', '10+5']).default('3+0'),
+  timeControl: z.enum(['1+0', '1+1', '2+1', '3+0', '3+1', '3+2', '5+0', '5+1', '10+0', '10+5', '15+10']).default('3+0'),
   // Coarse client-declared locality (e.g. IANA timezone); same-region
   // preference only, never a hard gate. Max 64 chars, free-form.
   region: z.string().min(1).max(64).optional(),

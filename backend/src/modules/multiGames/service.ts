@@ -13,7 +13,6 @@ import {
   applyMultiMove,
   createMultiGame,
   defaultSides,
-  hiddenWallCount,
   presetForPlayers,
   shortestToSide,
   validateMultiMove,

@@ -55,4 +55,15 @@ describe('puzzles http', () => {
       assert.ok(p.keyHint === null || p.keyHint.startsWith('••••'));
     }
   });
+
+  it('serves public headline counters without auth', async () => {
+    assert.ok(app !== null);
+    const res = await app.inject({ method: 'GET', url: '/api/v1/stats/public' });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as { users: number; gamesToday: number };
+    assert.ok(typeof body.users === 'number' && body.users >= 0);
+    assert.ok(typeof body.gamesToday === 'number' && body.gamesToday >= 0);
+    const again = await app.inject({ method: 'GET', url: '/api/v1/stats/public' });
+    assert.deepEqual(again.json(), body);
+  });
 });

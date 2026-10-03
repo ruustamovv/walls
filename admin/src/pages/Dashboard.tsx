@@ -45,6 +45,10 @@ export function Dashboard() {
     ['Tournaments', String(ov.tournaments), 'neutral'],
     ['Clubs', String(ov.clubs), 'neutral'],
     ['Open reports', String(ov.reportsOpen), ov.reportsOpen > 0 ? 'warn' : 'good'],
+    ['Fair-play cases', String(ov.fairplayOpen), ov.fairplayOpen > 0 ? 'warn' : 'good'],
+    ['Queue depth', String(ov.queueDepth), 'neutral'],
+    ['Premium subs', String(ov.premiumSubs), 'info'],
+    ['Puzzle packs', String(ov.puzzlePacks), 'neutral'],
     ['Redis', ov.redis, ov.redis === 'OK' ? 'good' : 'bad'],
   ];
 

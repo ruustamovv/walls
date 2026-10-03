@@ -40,6 +40,7 @@ export {
   visibleWalls,
 } from './fog.js';
 export { chooseMultiBotAction, MULTI_BOT_DEFAULT, type MultiBotOpts } from './bots.js';
+export { configForScenario, getScenario, SCENARIOS, type Scenario, type ScenarioFlags } from './scenarios.js';
 export {
   gradeMultiAttempt,
   multiPuzzleDaily,

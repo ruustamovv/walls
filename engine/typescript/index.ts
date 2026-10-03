@@ -21,6 +21,7 @@ export {
   type RejectReason,
   type ValidationResult,
   type Wall,
+  type WallShape,
 } from './core/types.js';
 export {
   canPlaceWallGeometry,
@@ -107,11 +108,13 @@ export {
   SIEGE_WALL_BONUS,
   applyMultiMove,
   chooseMultiBotAction,
+  configForScenario,
   createMultiGame,
   defaultSides,
   fogMap,
   getMultiLegalMoves,
   getMultiLegalWalls,
+  getScenario,
   gradeMultiAttempt,
   hashMultiState,
   hiddenWallCount,
@@ -125,6 +128,7 @@ export {
   pawnsAdjacent,
   presetForPlayers,
   replayMultiGame,
+  SCENARIOS,
   seatTeams,
   seededMultiPuzzle,
   serializeMultiState,
@@ -146,6 +150,8 @@ export {
   type MultiState,
   type MultiValidation,
   type MultiWall,
+  type Scenario,
+  type ScenarioFlags,
   type SeatSide,
   type SidePath,
 } from './multi/index.js';

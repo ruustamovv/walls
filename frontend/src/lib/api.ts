@@ -170,8 +170,9 @@ export const api = {
   }>(`/api/v1/games/${encodeURIComponent(id)}/meta`),
 
   mmJoin: (input: { mode?: string; timeControl?: string; region?: string }) =>
-    req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/join', { method: 'POST', body: JSON.stringify(input) }),  mmStatus: () => req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/status'),
+    req<{ status: 'queued' } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/join', { method: 'POST', body: JSON.stringify(input) }),  mmStatus: () => req<{ status: 'queued'; position?: number; poolSize?: number; waitedMs?: number; window?: number } | { status: 'matched'; gameId: string }>('/api/v1/matchmaking/status'),
   mmCancel: () => req<{ ok: boolean }>('/api/v1/matchmaking/cancel', { method: 'POST' }),
+  publicStats: () => req<{ users: number; gamesToday: number }>('/api/v1/stats/public'),
 
   profile: (username: string) => req<{
     username: string;
@@ -181,9 +182,10 @@ export const api = {
     viewsMonth?: number;
     frame?: string;
     stats?: { seatWins: [number, number]; seatGames: [number, number]; streak: number; streakWon: boolean; winRate?: number; timeouts?: number; resignations?: number; avgDurationSec?: number };
+    puzzles?: { solves: number; streak: number };
     fairPlay?: { score: number; level: 'exemplary' | 'good' | 'caution' | 'restricted' };
     ratings: { mode: string; rating: number; peak: number; games: number; wins: number; losses: number }[];
-    recentGames: { id: string; mode: string; timeControl: string; status: string; result: { winnerSeat: 0 | 1 | null; reason: string } | null; createdAt: string }[];
+    recentGames: { id: string; mode: string; timeControl: string; status: string; result: { winnerSeat: 0 | 1 | null; reason: string } | null; won: boolean | null; createdAt: string }[];
     degraded?: boolean;
   }>(`/api/v1/profiles/${encodeURIComponent(username)}`),
   ratingHistory: (username: string, mode: string) => req<{    mode: string;
@@ -444,6 +446,36 @@ export const api = {
     '/api/v1/puzzles/mine/attempt',
     { method: 'POST', body: JSON.stringify({ gameId, seq, action }) },
   ),
+  premiumPack: () => req<{
+    generated: boolean;
+    date: string;
+    tasteSource: 'ai' | 'default';
+    items: {
+      index: number;
+      puzzleId: string;
+      date: string;
+      prompt: string;
+      size: number;
+      turn: 0 | 1;
+      pawns: [{ r: number; c: number }, { r: number; c: number }];
+      walls: { r: number; c: number; orientation: 'h' | 'v' }[];
+      wallsRemaining: [number, number];
+      needGain: number;
+      difficulty?: 'classic' | 'tricky' | 'sharp' | 'devilish';
+      alternatives?: number;
+    }[];
+    solved: boolean[];
+  }>('/api/v1/puzzles/premium/pack'),
+  premiumAttempt: (index: number, wall: { r: number; c: number; orientation: 'h' | 'v' }) => req<{
+    solved: boolean;
+    gain: number;
+    need: number;
+    legal: boolean;
+    reason?: string;
+    solution?: { r: number; c: number; orientation: 'h' | 'v' };
+    solutionGain?: number;
+    index: number;
+  }>('/api/v1/puzzles/premium/attempt', { method: 'POST', body: JSON.stringify({ index, wall }) }),
 
   coach: (input: {
     moveNumber: number;

@@ -31,6 +31,20 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
     ]);
     const { monthlySpendUsd } = await import('../modules/ai/complete.js');
     const aiBudget = Number(process.env['AI_MONTHLY_BUDGET_USD'] ?? 25);
+    const [fairplayOpen, queueDepth, premiumSubs, packReady] = await Promise.all([
+      db.collection('moderation_cases').countDocuments({ status: 'OPEN' }).catch(() => -1),
+      (async () => {
+        try {
+          const { matchmakingDepths } = await import('./v1.js');
+          const d = await matchmakingDepths();
+          return (d.redisRanked ?? 0) + d.memory;
+        } catch {
+          return -1;
+        }
+      })(),
+      db.collection('entitlements').countDocuments({}).catch(() => -1),
+      db.collection('puzzle_packs').countDocuments({}).catch(() => -1),
+    ]);
     return {
       users,
       aiBudget: Number.isFinite(aiBudget) ? aiBudget : 25,
@@ -41,6 +55,10 @@ export async function registerAdmin(app: FastifyInstance): Promise<void> {
       tournaments,
       clubs,
       reportsOpen,
+      fairplayOpen,
+      queueDepth,
+      premiumSubs,
+      puzzlePacks: packReady,
       redis: redis.ok ? 'OK' : 'DEGRADED',
       queueNote: 'matchmaking depth is per-instance unless Redis queue is active',
     };

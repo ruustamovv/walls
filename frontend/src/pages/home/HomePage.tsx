@@ -1,154 +1,265 @@
 /**
- * Landing: the arena calls. Light editorial surface, dark game-theater
- * preview, live platform proof, three-step rules, bot ladder, final CTA.
+ * Home: greeting, quick play, menu cards, daily puzzle, recent game,
+ * streak, live counters, archive preview. Every number is real.
  */
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { createGame } from '../../../../engine/typescript/index.js';
-import { BOTS } from '../../../../engine/typescript/index.js';
+import { Link, useNavigate } from 'react-router-dom';
 import GameBoard from '../../components/game/GameBoard.js';
-import { Badge, Button, Card, Logo, Spinner, Stat } from '../../components/ui/primitives.js';
+import { Avatar, Badge, Button, Card, Modal, Spinner } from '../../components/ui/primitives.js';
+import { Icon, type IconName } from '../../components/ui/icons.js';
 import { api } from '../../lib/api.js';
-import { BRAND } from '../../lib/brand.js';
 import { useSession } from '../../stores/session.js';
+import { useQuickMatch } from '../../hooks/useQuickMatch.js';
+import type { GameState } from '../../../../engine/typescript/core/types.js';
 
-const preview = createGame({ size: 9, wallsPerPlayer: 10 });
+const QUICK_TCS = ['1+0', '3+1', '10+0'] as const;
 
 export default function HomePage() {
-  const [liveCount, setLiveCount] = useState<number | null>(null);
   const { user } = useSession();
-  const [mine, setMine] = useState<{ rating: number; streak: number; streakWon: boolean; views: number } | null>(null);
+  const navigate = useNavigate();
+  const qm = useQuickMatch();
+  const [tc, setTc] = useState<string>('3+1');
+  const [profile, setProfile] = useState<Awaited<ReturnType<typeof api.profile>> | null>(null);
+  const [daily, setDaily] = useState<Awaited<ReturnType<typeof api.puzzleDaily>> | null>(null);
+  const [stats, setStats] = useState<Awaited<ReturnType<typeof api.publicStats>> | null>(null);
+  const [liveCount, setLiveCount] = useState<number | null>(null);
+  const [rival, setRival] = useState<{ username: string; rating: number } | null>(null);
+  const [lesson, setLesson] = useState<{ done: number; total: number } | null>(null);
+  const [challenged, setChallenged] = useState(false);
+
   useEffect(() => {
     let live = true;
+    api.publicStats().then((s) => { if (live) setStats(s); }).catch(() => undefined);
     api.liveGames().then((r) => { if (live) setLiveCount(r.games.length); }).catch(() => undefined);
+    api.puzzleDaily().then((d) => { if (live) setDaily(d); }).catch(() => undefined);
+    api.leaderboard('blitz').then((l) => {
+      if (!live) return;
+      const first = l.entries.find((e) => e.username !== user?.username);
+      if (first !== undefined) setRival({ username: first.username, rating: first.rating });
+    }).catch(() => undefined);
+    api.learnCurriculum().then((c) => {
+      if (!live) return;
+      const steps = c.lessons.flatMap((l) => l.steps);
+      setLesson({ done: steps.filter((s) => s.solved).length, total: steps.length });
+    }).catch(() => undefined);
     return () => { live = false; };
   }, []);
   useEffect(() => {
-    if (user === null) {
-      setMine(null);
+    if (user === null || user.guest === true) {
+      setProfile(null);
       return;
     }
     let live = true;
-    api.profile(user.username).then((p) => {
-      if (!live) return;
-      const top = p.ratings.length > 0 ? Math.max(...p.ratings.map((r) => r.rating)) : 0;
-      setMine({ rating: top, streak: p.stats?.streak ?? 0, streakWon: p.stats?.streakWon ?? false, views: p.views ?? 0 });
-    }).catch(() => undefined);
+    api.profile(user.username).then((p) => { if (live) setProfile(p); }).catch(() => undefined);
     return () => { live = false; };
-  }, [user === null]);
+  }, [user]);
+
+  async function play(): Promise<void> {
+    const mode = user !== null && !user.guest ? 'ranked' : 'casual';
+    await qm.start(tc, mode);
+  }
+
+  const recent = profile?.recentGames ?? [];
+  const lastGame = recent[0];
+  const puzzleStreak = profile?.puzzles?.streak ?? 0;
 
   return (
-    <div style={{ display: 'grid', gap: 'var(--space-6)' }}>
-      {user !== null && (
-        <Card>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-            <strong className="font-display">Your arena</strong>
-            {mine === null ? <Spinner /> : (
-              <>
-                <span style={{ fontSize: 14 }}>Top <strong className="font-mono">{mine.rating}</strong></span>
-                {mine.streak > 1 && <span style={{ fontSize: 14 }}>{mine.streak} {mine.streakWon ? 'wins' : 'losses'} in a row</span>}
-                <span style={{ fontSize: 14, color: 'var(--muted)' }}>{mine.views} profile views</span>
-              </>
-            )}
-            <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-              <Link to="/puzzles"><Button size="sm" variant="ghost">Daily puzzle</Button></Link>
-              <Link to="/training"><Button size="sm" variant="ghost">Train mistakes</Button></Link>
-            </span>
-          </div>
-        </Card>
-      )}
-      <section
-        style={{
-          borderRadius: 'var(--radius-lg)', padding: 'clamp(24px, 5vw, 56px)',
-          background: 'linear-gradient(135deg, #0b0e14 0%, #131a2e 55%, #1a1440 100%)',
-          color: '#eef1f6', position: 'relative', overflow: 'hidden',
-        }}
-      >
-        <div aria-hidden style={{
-          position: 'absolute', inset: 0, opacity: 0.5,
-          background: 'radial-gradient(600px 300px at 80% 20%, rgba(34,211,238,.18), transparent 60%), radial-gradient(500px 260px at 15% 85%, rgba(245,158,11,.14), transparent 60%)',
-        }} />
-        <div className="nexus-hero" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,400px)', gap: 32, alignItems: 'center', position: 'relative' }}>
-          <div>
-            <p style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#9aa4b5', fontWeight: 800, letterSpacing: '.1em', fontSize: 12, margin: 0 }}>
-              <Logo size={22} /> ORIGINAL WALL-AND-PAWN ARENA
-            </p>
-            <h1 className="font-display" style={{ fontSize: 'var(--text-hero)', lineHeight: 1.02, margin: '12px 0' }}>
-              {BRAND.TAGLINE}
-            </h1>
-            <p style={{ color: '#9aa4b5', fontSize: 17, maxWidth: 520, margin: '0 0 24px' }}>
-              {BRAND.APP_DESCRIPTION} Server-validated moves, server-owned clocks, Glicko ratings.
-            </p>
-            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <Link to="/play"><Button size="lg">Enter the arena</Button></Link>
-              <Link to="/play/bot?bot=rookie"><Button size="lg" variant="ghost" style={{ background: 'transparent', color: '#eef1f6', borderColor: '#263049' }}>Play demo — no account</Button></Link>
-            </div>
-            <div style={{ display: 'flex', gap: 16, marginTop: 24, flexWrap: 'wrap' }}>
-              <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', fontSize: 14, color: '#9aa4b5' }}>
-                <span aria-hidden style={{ width: 9, height: 9, borderRadius: '50%', background: liveCount !== null && liveCount > 0 ? '#34d399' : '#5d6678', animation: 'nexus-pulse 1.6s infinite' }} />
-                {liveCount === null ? 'checking the arena…' : liveCount === 0 ? 'no live battles right now' : `${liveCount} live battle${liveCount === 1 ? '' : 's'}`}
-              </span>
-              <span style={{ fontSize: 14, color: '#9aa4b5' }}>{BOTS.length} engine bots · daily puzzle · ranked 15×15</span>
-            </div>
-          </div>
-          <div style={{ maxWidth: 400, width: '100%', margin: '0 auto' }}>
-            <div style={{ borderRadius: 18, padding: 14, background: 'rgba(8,11,18,.7)', border: '1px solid #263049', boxShadow: '0 30px 80px rgba(0,0,0,.5)' }}>
-              <div data-theme="arena">
-                <GameBoard state={preview} humanSeats={[]} interactive={false} onMove={() => undefined} onWall={() => undefined} />
-              </div>
-            </div>
-            <p style={{ color: '#5d6678', fontSize: 13, textAlign: 'center', margin: '10px 0 0' }}>Every turn: move — or bend their route with a wall.</p>
-          </div>
-        </div>
-      </section>
+    <div style={{ display: 'grid', gap: 16 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <Avatar name={user?.username ?? 'guest'} size={40} />
+        <h1 className="font-display" style={{ margin: 0, fontSize: 22 }}>
+          {user === null ? 'Play now' : user.guest ? 'Guest game' : user.username}
+        </h1>
+        {puzzleStreak > 0 && <Badge tone="good"><span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}><Icon name="flame" size={14} /> {puzzleStreak}</span></Badge>}
+        <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--muted)' }}>
+          {stats === null
+            ? '…'
+            : stats.users > 0
+              ? `${stats.users.toLocaleString()} players · ${stats.gamesToday.toLocaleString()} games today`
+              : liveCount !== null && liveCount > 0 ? `${liveCount} live now` : ''}
+        </span>
+      </div>
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(230px,1fr))', gap: 12 }}>
-        {[
-          ['01 · Race', 'Reach the far edge first. Jumps and diagonal jumps included.'],
-          ['02 · Wall', 'Spend walls to force detours — a path must always remain.'],
-          ['03 · Rank up', 'Glicko ratings per time control. Review, train, climb.'],
-        ].map(([t, d]) => (
-          <Card key={t}>
-            <strong className="font-display">{t}</strong>
-            <p style={{ color: 'var(--muted)', margin: '6px 0 0', fontSize: 14 }}>{d}</p>
+      <div className="home-grid">
+        <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
+          <Card>
+            <h2 className="font-display" style={{ margin: '0 0 10px', fontSize: 17 }}>Play online</h2>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              {QUICK_TCS.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTc(t)}
+                  style={{
+                    flex: 1, borderRadius: 10, padding: '8px 0', fontWeight: 800, fontSize: 14,
+                    border: tc === t ? '2px solid var(--good)' : '1px solid var(--line)',
+                    background: tc === t ? 'var(--good-soft)' : 'var(--surface-2)', color: 'var(--ink)', cursor: 'pointer',
+                  }}
+                >
+                  {t.replace('+0', ' min').replace('+', ' + ')}
+                </button>
+              ))}
+            </div>
+            <Button size="lg" onClick={() => void play()} disabled={qm.searching} style={{ width: '100%', background: 'var(--good)', borderColor: 'var(--good)' }}>
+              {qm.searching ? 'Searching…' : 'Play'}
+            </Button>
+            {qm.error !== null && <p role="alert" style={{ color: 'var(--bad)', fontSize: 13 }}>{qm.error}</p>}
+            {qm.searching && <Button variant="ghost" onClick={() => void qm.cancel()} style={{ width: '100%', marginTop: 8 }}>Cancel</Button>}
           </Card>
-        ))}
-      </section>
 
-      <Card>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
-          <h2 className="font-display" style={{ margin: 0 }}>Sparring ladder</h2>
-          <Badge tone="info">all running the real engine</Badge>
-        </div>
-        <p style={{ color: 'var(--muted)', margin: '0 0 14px', fontSize: 14 }}>From Rookie to Apex. <Link to="/play?cat=bots">Meet them all →</Link></p>
-        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
-          {BOTS.slice(0, 6).map((b) => (
-            <Link
-              key={b.id}
-              to={`/play/bot?bot=${b.id}`}
-              style={{ minWidth: 150, background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: 12, textDecoration: 'none' }}
-            >
-              <div className="font-display" style={{ fontWeight: 700 }}>{b.name}</div>
-              <div className="font-mono" style={{ fontSize: 13, color: 'var(--muted)' }}>★ {b.rating}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{b.style}</div>
-            </Link>
-          ))}
-        </div>
-      </Card>
+          <div className="home-menu">
+            <MenuCard to="/play?cat=online" icon="bolt" title="Online" sub="Same level opponents" />
+            <MenuCard to="/play?cat=bots" icon="bot" title="Bots" sub="Beginner to master" />
+            <MenuCard to="/learn" icon="coach" title="Coach" sub="Learn by playing" />
+            <MenuCard to="/play?cat=friend" icon="friend" title="Friend" sub="Invite with a link" />
+          </div>
 
-      <Card>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 16 }}>
-          <Stat label="Board" value="15×15" sub="Standard ranked arena" />
-          <Stat label="Controls" value="1+0 – 5+1" sub="server-owned clocks" />
-          <Stat label="Ratings" value="Glicko-2" sub="per time control" />
-          <Stat label="Daily" value="Puzzle" sub="same for everyone" />
+          {recent.length > 0 && (
+            <Card>
+              <h2 className="font-display" style={{ margin: '0 0 8px', fontSize: 17 }}>Recent games</h2>
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 8 }}>
+                {recent.slice(0, 5).map((g) => (
+                  <li key={g.id} style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 14 }}>
+                    {g.won !== null && (
+                      <span className="font-mono" style={{
+                        fontWeight: 800, width: 22, height: 22, borderRadius: 6, display: 'inline-flex',
+                        alignItems: 'center', justifyContent: 'center', fontSize: 13,
+                        background: g.won ? 'var(--good)' : 'var(--surface-2)', color: g.won ? '#fff' : 'var(--muted)',
+                      }}>
+                        {g.won ? '1' : '0'}
+                      </span>
+                    )}
+                    <Link
+                      to={g.status === 'FINISHED' ? `/replay/${encodeURIComponent(g.id)}` : `/game/${encodeURIComponent(g.id)}`}
+                      style={{ fontWeight: 700 }}
+                    >
+                      {g.timeControl} · {g.mode}
+                    </Link>
+                    <Badge tone={g.status === 'FINISHED' ? 'neutral' : 'info'}>{g.status.toLowerCase()}</Badge>
+                    {g.status === 'FINISHED' && (
+                      <button
+                        onClick={() => navigate(`/game/${encodeURIComponent(g.id)}`)}
+                        style={{ background: 'none', border: 'none', padding: 0, color: 'var(--primary)', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+                      >
+                        Review
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
         </div>
-        <div style={{ marginTop: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Link to="/play"><Button>Play now</Button></Link>
-          <Link to="/puzzles"><Button variant="ghost">Daily puzzle</Button></Link>
+
+        <div style={{ display: 'grid', gap: 16, alignContent: 'start' }}>
+          <Card>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 8 }}>
+              <h2 className="font-display" style={{ margin: 0, fontSize: 17 }}>Daily puzzle</h2>
+              {daily !== null && <Badge tone="info">{daily.difficulty ?? 'classic'}</Badge>}
+            </div>
+            {daily === null ? <Spinner /> : <DailyMini data={daily} />}
+            <Link to="/puzzles"><Button style={{ width: '100%', marginTop: 10 }}>Solve</Button></Link>
+          </Card>
+          {lastGame !== undefined && (
+            <Card>
+              <h2 className="font-display" style={{ margin: '0 0 8px', fontSize: 17 }}>Last game</h2>
+              <p style={{ margin: '0 0 10px', fontSize: 14 }}>
+                {lastGame.timeControl} · {lastGame.mode} · {lastGame.status.toLowerCase()}
+              </p>
+              <Link to={lastGame.status === 'FINISHED' ? `/replay/${encodeURIComponent(lastGame.id)}` : `/game/${encodeURIComponent(lastGame.id)}`}>
+                <Button variant="ghost" style={{ width: '100%' }}>Open</Button>
+              </Link>
+            </Card>
+          )}
+          {rival !== null && (
+            <Card>
+              <h2 className="font-display" style={{ margin: '0 0 8px', fontSize: 17 }}>Top player</h2>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
+                <Avatar name={rival.username} size={34} />
+                <div>
+                  <div style={{ fontWeight: 800 }}>{rival.username}</div>
+                  <div className="font-mono" style={{ fontSize: 13, color: 'var(--muted)' }}>blitz {rival.rating}</div>
+                </div>
+              </div>
+              {user !== null && !user.guest ? (
+                challenged ? (
+                  <Badge tone="good">Challenge sent</Badge>
+                ) : (
+                  <Button
+                    variant="ghost"
+                    style={{ width: '100%' }}
+                    onClick={() => {
+                      void api.challenge(rival.username, '3+1', 'ranked')
+                        .then(() => setChallenged(true))
+                        .catch(() => setChallenged(false));
+                    }}
+                  >
+                    Challenge
+                  </Button>
+                )
+              ) : (
+                <Link to="/signup?next=/"><Button variant="ghost" style={{ width: '100%' }}>Join to challenge</Button></Link>
+              )}
+            </Card>
+          )}
+          {lesson !== null && lesson.total > 0 && (
+            <Card>
+              <h2 className="font-display" style={{ margin: '0 0 8px', fontSize: 17 }}>Lessons</h2>
+              <div style={{ height: 6, borderRadius: 999, background: 'var(--surface-2)', overflow: 'hidden', marginBottom: 8 }}>
+                <div style={{ width: `${Math.round((lesson.done / lesson.total) * 100)}%`, height: '100%', background: 'var(--good)' }} />
+              </div>
+              <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 10px' }}>{lesson.done}/{lesson.total} steps</p>
+              <Link to="/learn"><Button variant="ghost" style={{ width: '100%' }}>{lesson.done === 0 ? 'Start' : 'Continue'}</Button></Link>
+            </Card>
+          )}
         </div>
-      </Card>
-      <style>{`@media (max-width: 900px) { .nexus-hero { grid-template-columns: minmax(0,1fr) !important; } }`}</style>
+      </div>
+
+      {qm.searching && (
+        <Modal title="Finding opponent…" onClose={() => void qm.cancel()}>
+          <p style={{ color: 'var(--muted)' }}>{qm.desc} · widening… <span className="nexus-pulse">●</span></p>
+          <Button variant="ghost" onClick={() => void qm.cancel()}>Cancel</Button>
+        </Modal>
+      )}
+      <style>{`@media (min-width: 900px) { .home-grid { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 16px; align-items: start; } .home-menu { display: grid; gap: 8px; } } @media (max-width: 899px) { .home-grid { display: grid; gap: 16px; } .home-menu { display: grid; gap: 8px; } }`}</style>
+    </div>
+  );
+}
+
+function MenuCard({ to, icon, title, sub }: { to: string; icon: IconName; title: string; sub: string }) {
+  return (
+    <Link to={to} style={{
+      display: 'flex', gap: 12, alignItems: 'center', textDecoration: 'none',
+      background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--radius-md)', padding: '12px 14px',
+    }}>
+      <span style={{ color: 'var(--primary)' }}><Icon name={icon} size={26} /></span>
+      <span>
+        <span style={{ display: 'block', fontWeight: 800 }}>{title}</span>
+        <span style={{ display: 'block', fontSize: 12, color: 'var(--muted)' }}>{sub}</span>
+      </span>
+    </Link>
+  );
+}
+
+function DailyMini({ data }: { data: Awaited<ReturnType<typeof api.puzzleDaily>> }) {
+  const state: GameState = {
+    size: data.size,
+    wallsPerPlayer: 10,
+    turn: data.turn,
+    pawns: [{ ...data.pawns[0] }, { ...data.pawns[1] }],
+    walls: data.walls.map((w) => ({ ...w })),
+    wallsRemaining: [...data.wallsRemaining],
+    winner: null,
+    isOver: false,
+    moveNumber: 0,
+    lastAction: null,
+    rulesVersion: '1.0.0',
+  };
+  return (
+    <div style={{ maxWidth: 300 }}>
+      <GameBoard state={state} humanSeats={[]} interactive={false} onMove={() => undefined} onWall={() => undefined} />
+      <p style={{ color: 'var(--muted)', fontSize: 13, margin: '8px 0 0' }}>
+        +{data.needGain} target · one for everyone today
+      </p>
     </div>
   );
 }

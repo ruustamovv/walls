@@ -13,13 +13,16 @@
  *    opponent (farming / win-trading shape).
  *  - loss-streak-sandbagging: ≥5 consecutive ranked losses in rating history
  *    (deliberate rating dump before a climb).
+ *  - engine-correlation: review accuracy ≥97 with ≥85% top-engine matches
+ *    over 30+ moves (plays like the reference search itself; strong humans
+ *    sit well below both bars — calibration, not vibes).
  */
 import type { Db } from 'mongodb';
 import { COLLECTIONS } from '../../database/mongodb/collections.js';
 import { withDomainId } from '../../database/mongodb/ids.js';
 import type { GameDoc, RatingHistoryDoc } from '../../database/mongodb/types.js';
 
-export type SignalKind = 'rapid-move-streak' | 'same-pair-ranked-wins' | 'loss-streak-sandbagging';
+export type SignalKind = 'rapid-move-streak' | 'same-pair-ranked-wins' | 'loss-streak-sandbagging' | 'engine-correlation';
 
 export interface SignalHit {
   kind: SignalKind;
@@ -33,6 +36,10 @@ export const RAPID_MOVE_THRESHOLD_MS = 500;
 export const RAPID_MOVE_STREAK_MIN = 3;
 export const SAME_PAIR_WINS_MIN = 3;
 export const SANDBAG_LOSS_STREAK_MIN = 5;
+/** Engine-correlation bars (set from bot-vs-human calibration, not vibes). */
+export const ENGINE_CORR_MIN_MOVES = 30;
+export const ENGINE_CORR_MIN_ACCURACY = 97;
+export const ENGINE_CORR_MIN_BEST_RATE = 0.85;
 
 /**
  * Longest run of consecutive moves each faster than the threshold.
@@ -147,6 +154,77 @@ export function detectSandbagging(history: RatingHistoryDoc[]): SignalHit | null
   return null;
 }
 
+/**
+ * Pure engine-correlation check over one side's review numbers.
+ * Both bars must clear together: elite humans can spike accuracy in short
+ * quiet games, but sustained top-engine matching over 30+ moves is the
+ * reference search's own fingerprint.
+ */
+export function detectEngineCorrelation(input: { accuracy: number; bestRate: number; moves: number }): SignalHit | null {
+  if (input.moves < ENGINE_CORR_MIN_MOVES) return null;
+  if (input.accuracy < ENGINE_CORR_MIN_ACCURACY || input.bestRate < ENGINE_CORR_MIN_BEST_RATE) return null;
+  return {
+    kind: 'engine-correlation',
+    summary: `review accuracy ${input.accuracy} with ${(input.bestRate * 100).toFixed(1)}% top-engine matches over ${input.moves} moves`,
+    evidence: {
+      accuracy: input.accuracy,
+      bestRate: Math.round(input.bestRate * 1000) / 1000,
+      moves: input.moves,
+      minAccuracy: ENGINE_CORR_MIN_ACCURACY,
+      minBestRate: ENGINE_CORR_MIN_BEST_RATE,
+      minMoves: ENGINE_CORR_MIN_MOVES,
+    },
+  };
+}
+
+/** One deep review runs at a time — sweeps skip (never queue) when busy. */
+let corrReviewRunning = false;
+
+/**
+ * Grade both seats of a finished game against the reference search.
+ * Capped hard (few candidates, tiny budget, first 48 plies): this runs in a
+ * fire-and-forget sweep, so it must stay a seconds-scale background job.
+ * Returns per-seat {accuracy, bestRate, moves} for the pure detector above.
+ */
+export async function reviewCorrelation(
+  size: number,
+  wallsPerPlayer: number,
+  actions: readonly import('../../../../engine/typescript/dist/core/types.js').Action[],
+  gameId: string,
+): Promise<[{ accuracy: number; bestRate: number; moves: number }, { accuracy: number; bestRate: number; moves: number }] | null> {
+  // gameId is carried for the evidence bundle the caller writes.
+  void gameId;
+  if (process.env['ANTICHEAT_CORR_REVIEW'] === '0') return null;
+  if (corrReviewRunning) return null;
+  if (actions.length < ENGINE_CORR_MIN_MOVES) return null;
+  corrReviewRunning = true;
+  try {
+    const rev = await import('../../../../engine/typescript/dist/review/index.js');
+    const review = rev.reviewGame(
+      { size, wallsPerPlayer },
+      actions.slice(0, 48),
+      7,
+      { wallCandidates: 4, budgetMs: 5 },
+    );
+    const acc = review.summary.accuracy as [number, number];
+    const per: [{ accuracy: number; bestRate: number; moves: number }, { accuracy: number; bestRate: number; moves: number }] = [
+      { accuracy: acc[0], bestRate: 0, moves: 0 },
+      { accuracy: acc[1], bestRate: 0, moves: 0 },
+    ];
+    for (const m of review.moves) {
+      const seat = m.by as 0 | 1;
+      per[seat].moves++;
+      if (rev.describeAction(m.action) === m.best) per[seat].bestRate++;
+    }
+    for (const s of per) s.bestRate = s.moves > 0 ? s.bestRate / s.moves : 0;
+    return per;
+  } catch {
+    return null;
+  } finally {
+    corrReviewRunning = false;
+  }
+}
+
 export type ModerationCaseStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
 
 export interface ModerationCaseDoc {
@@ -225,6 +303,12 @@ export async function runSignalSweep(
     moveTimes: number[];
     mode: string;
     ratingMode: string;
+    /** Full action list for the engine-correlation review (ranked only). */
+    actions?: readonly import('../../../../engine/typescript/dist/core/types.js').Action[];
+    size?: number;
+    wallsPerPlayer?: number;
+    /** userId per seat ([seat0, seat1]) so correlation hits attribute correctly. */
+    seatIds?: [string, string];
   },
 ): Promise<SignalHit[]> {
   const hits: SignalHit[] = [];
@@ -236,6 +320,29 @@ export async function runSignalSweep(
     await cases.open({ userId: input.loserId, kind: timing.kind, summary: timing.summary, evidence: { ...timing.evidence, gameId: input.gameId } }).catch(() => undefined);
   }
   if (input.mode !== 'ranked') return hits;
+  // Engine-correlation: grade both seats against the reference search.
+  // Skips silently when actions are absent, short, or a review is running.
+  if (input.actions !== undefined && input.size !== undefined && input.wallsPerPlayer !== undefined && input.seatIds !== undefined) {
+    try {
+      const per = await reviewCorrelation(input.size, input.wallsPerPlayer, input.actions, input.gameId);
+      if (per !== null) {
+        for (const seat of [0, 1] as const) {
+          const hit = detectEngineCorrelation(per[seat]);
+          if (hit !== null) {
+            hits.push(hit);
+            await cases.open({
+              userId: input.seatIds[seat],
+              kind: hit.kind,
+              summary: `seat ${seat}: ${hit.summary}`,
+              evidence: { ...hit.evidence, gameId: input.gameId, seat },
+            }).catch(() => undefined);
+          }
+        }
+      }
+    } catch {
+      // correlation is advisory; the other detectors already ran
+    }
+  }
   const { GameRepository } = await import('../../database/mongodb/repositories/game.repository.js');
   const { RatingRepository } = await import('../../database/mongodb/repositories/rating.repository.js');
   const games = new GameRepository(db);

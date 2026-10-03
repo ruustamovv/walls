@@ -49,6 +49,7 @@ export const COLLECTIONS = {
   season_progress: 'season_progress',
   puzzles: 'puzzles',
   puzzle_attempts: 'puzzle_attempts',
+  puzzle_packs: 'puzzle_packs',
   ai_sessions: 'ai_sessions',
   ai_usage: 'ai_usage',
   ai_jobs: 'ai_jobs',

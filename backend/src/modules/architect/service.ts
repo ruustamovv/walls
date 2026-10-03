@@ -345,7 +345,7 @@ export function designFromTemplate(prompt: string): ArchitectResult {
  * model can never inject walls.
  */
 export async function designBoard(
-  userId: string,
+  _userId: string,
   prompt: string,
   llmSpec: { size?: unknown; wallsPerPlayer?: unknown; theme?: unknown } | null = null,
 ): Promise<ArchitectResult> {

@@ -17,6 +17,8 @@ export interface MatchTicket {
   /** Server-side stored rating — never accept client-provided rating. */
   rating: number;
   joinedAt: number;
+  /** Rated games played in this mode (server-resolved; widens windows for newcomers). */
+  gamesPlayed?: number;
   /** Fair-play conduct 0–100 (server-resolved, default 100 unknown). */
   behavior?: number;
   /** Coarse client-declared locality (e.g. timezone); preference only. */
@@ -33,6 +35,8 @@ export interface QueueStore {
   remove(userId: string): Promise<boolean>;
   list(): Promise<MatchTicket[]>;
   clear(): Promise<void>;
+  /** Fetch one ticket (queue-position display); null when not queued. */
+  get(userId: string): Promise<MatchTicket | null>;
 }
 
 export class InMemoryQueueStore implements QueueStore {
@@ -50,15 +54,34 @@ export class InMemoryQueueStore implements QueueStore {
     return [...this.map.values()].sort((a, b) => a.joinedAt - b.joinedAt);
   }
 
+  async get(userId: string): Promise<MatchTicket | null> {
+    return this.map.get(userId) ?? null;
+  }
+
   async clear(): Promise<void> {
     this.map.clear();
   }
 }
 
-export function ratingWindowFor(waitedMs: number): number {
+/**
+ * Rating window with player-aware range (MTM-003):
+ * - provisional players (<10 games) start DOUBLE wide — a fresh 1500 is a
+ *   guess, so holding them to ±100 wastes everyone's queue time;
+ * - masters (2400+, thin pools) start 1.5× wide for the same reason;
+ * - everything still expands with wait and caps at maxWindow.
+ */
+export function ratingWindowFor(waitedMs: number, gamesPlayed = 30, rating = 1500): number {
   const cfg = appConfig.matchmaking;
   const waitedSec = Math.max(0, waitedMs / 1000);
-  return Math.min(cfg.maxWindow, Math.round(cfg.initialWindow + waitedSec * cfg.windowExpandPerSec));
+  const provisional = gamesPlayed < (cfg.provisionalGames ?? 10);
+  const master = rating >= (cfg.masterRating ?? 2400);
+  const initialMult = (provisional ? (cfg.provisionalWindowMult ?? 2) : 1)
+    * (master ? (cfg.masterWindowMult ?? 1.5) : 1);
+  const expandMult = provisional ? 1.5 : 1;
+  return Math.min(
+    cfg.maxWindow,
+    Math.round(cfg.initialWindow * initialMult + waitedSec * cfg.windowExpandPerSec * expandMult),
+  );
 }
 
 export class MatchmakingQueue {
@@ -100,7 +123,7 @@ export class MatchmakingQueue {
     const head = tickets[0];
     if (head === undefined) return null;
     const waitedMs = now - head.joinedAt;
-    const window = ratingWindowFor(waitedMs);
+    const window = ratingWindowFor(waitedMs, head.gamesPlayed ?? 30, head.rating);
     const { behaviorGapAllowed } = await import('../fairplay/service.js');
     const gapAllowed = behaviorGapAllowed(waitedMs);
     const headBehavior = head.behavior ?? 100;
@@ -151,6 +174,30 @@ export class MatchmakingQueue {
   /** Test hook: pretend two users just met (rematch-avoidance checks). */
   markPaired(a: string, b: string, now: number = Date.now()): void {
     this.recentPairs.set(pairKey(a, b), now);
+  }
+
+  /**
+   * Queue position snapshot for the waiting UI: 1-based position among
+   * same-mode tickets, pool size, waited time and current window.
+   * Returns null when the user holds no ticket.
+   */
+  async describe(userId: string, now: number = Date.now()): Promise<{
+    position: number; poolSize: number; waitedMs: number; window: number;
+  } | null> {
+    const mine = await this.store.get(userId);
+    if (mine === null) return null;
+    const same = (await this.store.list())
+      .filter((t) => t.mode === mine.mode && t.timeControl === mine.timeControl)
+      .sort((a, b) => a.joinedAt - b.joinedAt);
+    const position = same.findIndex((t) => t.userId === userId) + 1;
+    if (position <= 0) return null;
+    const waitedMs = Math.max(0, now - mine.joinedAt);
+    return {
+      position,
+      poolSize: same.length,
+      waitedMs,
+      window: ratingWindowFor(waitedMs, mine.gamesPlayed ?? 30, mine.rating),
+    };
   }
 
   private sweepPairs(now: number): void {

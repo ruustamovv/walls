@@ -3,10 +3,11 @@
  * key moves + retry + coach explains (chess.com-style).
  */
 import { useEffect, useMemo, useState } from 'react';
-import { applyMove, BALANCED_WEIGHTS, createGame, findShortestPath, parseBestAction, topCandidates } from '../../../../engine/typescript/index.js';
+import { applyMove, BALANCED_WEIGHTS, createGame, findShortestPath, parseBestAction, reviewGame, topCandidates } from '../../../../engine/typescript/index.js';
 import type { Action, GameState } from '../../../../engine/typescript/core/types.js';
 import { api } from '../../lib/api.js';
 import { actionName } from '../../lib/coords.js';
+import { useSession } from '../../stores/session.js';
 import { Avatar, Badge, Button, Card, ErrorBox, MoveBadge, Spinner } from '../ui/primitives.js';
 import GameBoard from './GameBoard.js';
 
@@ -125,6 +126,25 @@ function Alternatives({ review, seq }: { review: Review; seq: number }) {
 export default function ReviewPanel({ gameId }: { gameId: string }) {
   const [review, setReview] = useState<Review | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setReview(null); setError(null);
+    api.review(gameId).then((r) => { if (!cancelled) setReview(r as Review); }).catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Review unavailable'); });
+    return () => { cancelled = true; };
+  }, [gameId]);
+
+  if (error !== null) return <ErrorBox message={error} />;
+  if (review === null) return <Spinner />;
+  return <ReviewView review={review} gameId={gameId} />;
+}
+
+/**
+ * Presentational review: accuracy, win% curve, classification badges, key
+ * moves with retry boards and per-move AI coach. Used by the online game
+ * screen and (without a gameId) by local bot-game reviews.
+ */
+export function ReviewView({ review, gameId, coachLocked }: { review: Review; gameId?: string; coachLocked?: boolean }) {
   const [coachFor, setCoachFor] = useState<number | null>(null);
   const [coachText, setCoachText] = useState<Record<number, string>>({});
   const [coachBusy, setCoachBusy] = useState(false);
@@ -137,7 +157,7 @@ export default function ReviewPanel({ gameId }: { gameId: string }) {
     setCoachBusy(true);
     try {
       const res = await api.coach({ moveNumber: m.seq, playedAction: actionName(m.action as any, review.size), bestAction: m.best, ownPathBefore: m.ownBefore, ownPathAfter: m.ownAfter, oppPathBefore: m.oppBefore, oppPathAfter: m.oppAfter });
-      setCoachText((t) => ({ ...t, [m.seq]: res.available && res.explanation !== undefined ? res.explanation : (res.message ?? 'Coach unavailable (add GROQ_API_KEY)') }));
+      setCoachText((t) => ({ ...t, [m.seq]: res.available && res.explanation !== undefined ? res.explanation : (res.message ?? 'Coach unavailable right now') }));
       setCoachFor(m.seq);
     } catch (err) {
       setCoachText((t) => ({ ...t, [m.seq]: err instanceof Error ? err.message : 'Coach unavailable' }));
@@ -145,6 +165,7 @@ export default function ReviewPanel({ gameId }: { gameId: string }) {
     } finally { setCoachBusy(false); }
   }
   async function askSummary() {
+    if (gameId === undefined) return;
     setSummaryBusy(true);
     try {
       const res = await api.coachSummary(gameId);
@@ -153,14 +174,8 @@ export default function ReviewPanel({ gameId }: { gameId: string }) {
     finally { setSummaryBusy(false); }
   }
   useEffect(() => {
-    let cancelled = false;
-    setReview(null); setError(null); setSummary(null); setRetrySeq(null);
-    api.review(gameId).then((r) => { if (!cancelled) setReview(r as Review); }).catch((err: unknown) => { if (!cancelled) setError(err instanceof Error ? err.message : 'Review unavailable'); });
-    return () => { cancelled = true; };
-  }, [gameId]);
-
-  if (error !== null) return <ErrorBox message={error} />;
-  if (review === null) return <Spinner />;
+    setSummary(null); setRetrySeq(null);
+  }, [review]);
   const acc = (review.summary as any).accuracy as [number, number];
   const counts = (review.summary as any).classCounts as Record<string, number>[];
   const keyMoves = review.moves.filter((m) => ['BRILLIANT', 'GREAT', 'BLUNDER', 'MISTAKE', 'MISS'].includes(m.class) || m.labels.length > 0).slice(0, 12);
@@ -183,7 +198,7 @@ export default function ReviewPanel({ gameId }: { gameId: string }) {
           </span>
         ))}
       </div>
-      <Button size="sm" onClick={() => void askSummary()} disabled={summaryBusy}>{summaryBusy ? '…' : 'Coach explains game'}</Button>
+      {gameId !== undefined && <Button size="sm" onClick={() => void askSummary()} disabled={summaryBusy}>{summaryBusy ? '…' : 'Coach explains game'}</Button>}
       {summary !== null && <p style={{ fontSize: 13, background: 'var(--surface-2)', borderRadius: 8, padding: '8px 10px' }}>{summary}</p>}
       <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0, display: 'grid', gap: 8 }}>
         {keyMoves.map((m) => (
@@ -194,7 +209,9 @@ export default function ReviewPanel({ gameId }: { gameId: string }) {
               <span style={{ color: 'var(--muted)' }}>{m.ownBefore}→{m.ownAfter} · best {m.best}</span>
               <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
                 <Button size="sm" variant="ghost" onClick={() => setRetrySeq(retrySeq === m.seq ? null : m.seq)}>{retrySeq === m.seq ? 'Hide' : 'Retry'}</Button>
-                <button onClick={() => void askCoach(m)} disabled={coachBusy} style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', fontSize: 13, fontWeight: 700 }}>Coach</button>
+                {coachLocked === true
+                  ? <span style={{ fontSize: 12, color: 'var(--muted)', alignSelf: 'center' }}>Log in for Coach</span>
+                  : <button onClick={() => void askCoach(m)} disabled={coachBusy} style={{ background: 'var(--surface-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', fontSize: 13, fontWeight: 700 }}>Coach</button>}
               </div>
               <Alternatives review={review} seq={m.seq} />
               {retrySeq === m.seq && <RetryBoard review={review} seq={m.seq} onClose={() => setRetrySeq(null)} />}
@@ -205,4 +222,57 @@ export default function ReviewPanel({ gameId }: { gameId: string }) {
       </ul>
     </Card>
   );
+}
+
+/**
+ * Bot-game review: the same engine review, computed locally in the browser
+ * from the finished action list (no backend game needed). Per-move AI coach
+ * works for signed-in users; guests get the full engine analysis.
+ */
+export function LocalReviewPanel({ size, wallsPerPlayer, actions }: {
+  size: number;
+  wallsPerPlayer: number;
+  actions: Action[];
+}) {
+  const { user } = useSession();
+  const [started, setStarted] = useState(false);
+  const [review, setReview] = useState<Review | null>(null);
+
+  useEffect(() => {
+    if (!started) return;
+    let cancelled = false;
+    // Let the "Analyzing…" state paint before the synchronous search blocks.
+    const id = setTimeout(() => {
+      try {
+        const r = reviewGame({ size, wallsPerPlayer }, actions, 7, { wallCandidates: 12, budgetMs: 30 });
+        // The engine review carries no board dims; retry boards and the coach
+        // need them, so attach the (known, exact) values here.
+        if (!cancelled) setReview({ ...(r as unknown as Record<string, unknown>), size, wallsPerPlayer } as unknown as Review);
+      } catch {
+        if (!cancelled) setReview(null);
+      }
+    }, 60);
+    return () => { cancelled = true; clearTimeout(id); };
+  }, [started, size, wallsPerPlayer, actions]);
+
+  if (!started) {
+    return (
+      <Card>
+        <h3 style={{ margin: '0 0 8px' }}>Game review</h3>
+        <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 10px' }}>
+          Accuracy, best moves and blunders from the same engine that powers rated reviews — computed on your device.
+        </p>
+        <Button onClick={() => setStarted(true)}>Analyze my game</Button>
+      </Card>
+    );
+  }
+  if (review === null) {
+    return (
+      <Card>
+        <h3 style={{ margin: '0 0 8px' }}>Game review</h3>
+        <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>Analyzing {actions.length} moves… <span className="nexus-pulse">●</span></p>
+      </Card>
+    );
+  }
+  return <ReviewView review={review} coachLocked={user === null} />;
 }

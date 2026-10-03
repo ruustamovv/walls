@@ -219,3 +219,17 @@ describe('wall geometry is canonically two cells', () => {
     assert.deepEqual(replayed.state.pawns, live.pawns);
   });
 });
+
+describe('walls: ownership stamp', () => {
+  it('applyMove stamps the mover seat; serialize/parse round-trips it', async () => {
+    const { applyMove: apply, createGame: create, serializeState, deserializeState } = await import('../index.js');
+    let s = create({ size: 9, wallsPerPlayer: 10 });
+    s = apply(s, { type: 'wall', wall: { r: 2, c: 2, orientation: 'h' } }).state;
+    assert.equal(s.walls[0]?.by, 0);
+    s = apply(s, { type: 'wall', wall: { r: 4, c: 4, orientation: 'v' } }).state;
+    assert.equal(s.walls[1]?.by, 1);
+    const restored = deserializeState(serializeState(s));
+    assert.equal(restored.walls[0]?.by, 0);
+    assert.equal(restored.walls[1]?.by, 1);
+  });
+});

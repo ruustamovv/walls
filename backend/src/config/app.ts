@@ -7,12 +7,15 @@
 export const TIME_CONTROLS = [
   { id: '1+0', baseSec: 60, incSec: 0 },
   { id: '1+1', baseSec: 60, incSec: 1 },
+  { id: '2+1', baseSec: 120, incSec: 1 },
   { id: '3+0', baseSec: 180, incSec: 0 },
   { id: '3+1', baseSec: 180, incSec: 1 },
+  { id: '3+2', baseSec: 180, incSec: 2 },
   { id: '5+0', baseSec: 300, incSec: 0 },
   { id: '5+1', baseSec: 300, incSec: 1 },
   { id: '10+0', baseSec: 600, incSec: 0 },
   { id: '10+5', baseSec: 600, incSec: 5 },
+  { id: '15+10', baseSec: 900, incSec: 10 },
 ] as const;
 
 export type TimeControlId = (typeof TIME_CONTROLS)[number]['id'];
@@ -25,6 +28,12 @@ export interface AppConfig {
     windowExpandPerSec: number;
     maxWindow: number;
     queueTtlSec: number;
+    /** Below this many rated games the window starts doubled (provisional). */
+    provisionalGames: number;
+    provisionalWindowMult: number;
+    /** At/above this rating the pool is thin, so the window starts wider. */
+    masterRating: number;
+    masterWindowMult: number;
   };
   reconnect: { graceSec: number };
   walls: { defaultPerPlayer: number; defaultBoardSize: number };
@@ -54,6 +63,10 @@ export const appConfig: AppConfig = {
     windowExpandPerSec: 25,
     maxWindow: 600,
     queueTtlSec: 120,
+    provisionalGames: 10,
+    provisionalWindowMult: 2,
+    masterRating: 2400,
+    masterWindowMult: 1.5,
   },
   reconnect: { graceSec: 60 },
   walls: { defaultPerPlayer: 10, defaultBoardSize: 9 },

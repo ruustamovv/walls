@@ -12,7 +12,7 @@
  * - Collinear-adjacent walls (e.g. 'h' at (r,c) and (r,c+1)) are LEGAL and
  *   simply form longer barriers; the path-preservation rule still applies.
  */
-import type { PlayerIndex, Pos, ValidationResult, Wall } from './types.js';
+import type { PlayerIndex, Pos, ValidationResult, Wall, WallShape } from './types.js';
 
 /** Goal row for a player: P0 -> bottom row, P1 -> top row. */
 export function goalRowFor(player: PlayerIndex, size: number): number {
@@ -61,7 +61,7 @@ export function wallsEqual(a: Wall, b: Wall): boolean {
  * blocked by a wall. Non-adjacent pairs are reported as blocked (there is
  * no single-step move between them anyway).
  */
-export function isBlockedBetween(a: Pos, b: Pos, walls: readonly Wall[]): boolean {
+export function isBlockedBetween(a: Pos, b: Pos, walls: readonly WallShape[]): boolean {
   const dr = b.r - a.r;
   const dc = b.c - a.c;
   if (Math.abs(dr) + Math.abs(dc) !== 1) return true;
@@ -94,7 +94,7 @@ export function isBlockedBetween(a: Pos, b: Pos, walls: readonly Wall[]): boolea
 }
 
 /** Orthogonal neighbours of a cell reachable in one step (walls respected). */
-export function getNeighbors(pos: Pos, walls: readonly Wall[], size: number): Pos[] {
+export function getNeighbors(pos: Pos, walls: readonly WallShape[], size: number): Pos[] {
   const candidates: Pos[] = [
     { r: pos.r - 1, c: pos.c },
     { r: pos.r + 1, c: pos.c },
@@ -120,8 +120,8 @@ export function getNeighbors(pos: Pos, walls: readonly Wall[], size: number): Po
  * Does NOT check inventory or path preservation (see rules/walls.ts).
  */
 export function canPlaceWallGeometry(
-  walls: readonly Wall[],
-  wall: Wall,
+  walls: readonly WallShape[],
+  wall: WallShape,
   size: number,
 ): ValidationResult {
   if (wall.orientation !== 'h' && wall.orientation !== 'v') {

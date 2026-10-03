@@ -18,6 +18,7 @@
     "db:health": "tsx src/database/health-cli.ts",
     "verify:live": "npm run build && tsx src/database/live-verify.ts",
     "owner:create": "tsx src/scripts/create-owner.ts",
+    "puzzles:pack": "tsx src/scripts/generate-puzzle-pack.ts",
     "env:check": "node ../../scripts/setup/env-check.mjs"
   },
   "dependencies": {

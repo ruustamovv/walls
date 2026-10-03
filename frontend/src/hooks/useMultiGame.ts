@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   applyMultiMove,
   chooseMultiBotAction,
+  configForScenario,
   createMultiGame,
   validateMultiMove,
 } from '../../../engine/typescript/index.js';
@@ -17,15 +18,17 @@ export interface MultiGameOptions {
   humans: number;
   size: number;
   wallsPerPlayer: number;
+  /** Named scenario id (classic/teams/placement/siege/chaos). Fog is online-only. */
+  scenario?: string;
 }
 
 export function useMultiGame(opts: MultiGameOptions) {
-  const { players, humans, size, wallsPerPlayer } = opts;
-  const [state, setState] = useState<MultiState>(() => createMultiGame({ players, size, wallsPerPlayer }));
+  const { players, humans, size, wallsPerPlayer, scenario } = opts;
+  const seedBase = useRef(Math.floor(Math.random() * 1e9));
+  const [state, setState] = useState<MultiState>(() => createMultiGame(configForScenario({ players, size, wallsPerPlayer, seed: seedBase.current }, scenario ?? null)));
   const [actions, setActions] = useState<MultiAction[]>([]);
   const [message, setMessage] = useState('');
   const [botThinking, setBotThinking] = useState(false);
-  const seedBase = useRef(Math.floor(Math.random() * 1e9));
 
   const humanSeats = useMemo(
     () => Array.from({ length: Math.min(humans, players) }, (_, i) => i),
@@ -52,14 +55,15 @@ export function useMultiGame(opts: MultiGameOptions) {
   const doWall = useCallback((wall: MultiWall) => apply({ type: 'wall', wall }), [apply]);
 
   const restart = useCallback(() => {
-    setState(createMultiGame({ players, size, wallsPerPlayer }));
+    const seed = Math.floor(Math.random() * 1e9);
+    seedBase.current = seed;
+    setState(createMultiGame(configForScenario({ players, size, wallsPerPlayer, seed }, scenario ?? null)));
     setActions([]);
     setMessage('');
     setBotThinking(false);
-    seedBase.current = Math.floor(Math.random() * 1e9);
-  }, [players, size, wallsPerPlayer]);
+  }, [players, size, wallsPerPlayer, scenario]);
 
-  const configKey = `${players}x${humans}:${size}x${wallsPerPlayer}`;
+  const configKey = `${players}x${humans}:${size}x${wallsPerPlayer}:${scenario ?? 'classic'}`;
   const seenConfig = useRef(configKey);
   useEffect(() => {
     if (seenConfig.current !== configKey) {

@@ -24,6 +24,7 @@ export class RedisQueueStore implements QueueStore {
     await redis.hset(tkey, {
       queue: qkey, mode: ticket.mode, timeControl: ticket.timeControl,
       rating: String(ticket.rating), joinedAt: String(ticket.joinedAt),
+      ...(ticket.gamesPlayed !== undefined ? { gamesPlayed: String(ticket.gamesPlayed) } : {}),
       ...(ticket.behavior !== undefined ? { behavior: String(ticket.behavior) } : {}),
       ...(ticket.region !== undefined ? { region: ticket.region } : {}),
     });
@@ -61,11 +62,28 @@ export class RedisQueueStore implements QueueStore {
       out.push({
         userId, mode: h['mode'] ?? mode, timeControl: h['timeControl'] ?? timeControl,
         rating: Number(h['rating'] ?? 1500), joinedAt: Number(h['joinedAt'] ?? Date.now()),
+        ...(h['gamesPlayed'] !== undefined ? { gamesPlayed: Number(h['gamesPlayed']) } : {}),
         ...(h['behavior'] !== undefined ? { behavior: Number(h['behavior']) } : {}),
         ...(h['region'] !== undefined ? { region: h['region'] } : {}),
       });
     }
     return out;
+  }
+
+  async get(userId: string): Promise<MatchTicket | null> {
+    const redis = getRedis();
+    const h = await redis.hgetall(redisKeys.matchmakingTicket(userId));
+    if (h['queue'] === undefined) return null;
+    return {
+      userId,
+      mode: h['mode'] ?? 'ranked',
+      timeControl: h['timeControl'] ?? '3+1',
+      rating: Number(h['rating'] ?? 1500),
+      joinedAt: Number(h['joinedAt'] ?? Date.now()),
+      ...(h['gamesPlayed'] !== undefined ? { gamesPlayed: Number(h['gamesPlayed']) } : {}),
+      ...(h['behavior'] !== undefined ? { behavior: Number(h['behavior']) } : {}),
+      ...(h['region'] !== undefined ? { region: h['region'] } : {}),
+    };
   }
 
   async clear(): Promise<void> {

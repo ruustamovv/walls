@@ -30,6 +30,28 @@ describe('matchmaking queue', () => {
     assert.ok(wLate > w0);
   });
 
+  it('player-aware range: newcomers and masters start wider', () => {
+    const base0 = ratingWindowFor(0);
+    assert.ok(ratingWindowFor(0, 2) > base0);
+    assert.ok(ratingWindowFor(0, 30, 2500) > base0);
+    assert.equal(ratingWindowFor(0, 30, 1500), base0);
+    // Still capped.
+    assert.ok(ratingWindowFor(3_600_000, 0, 2600) <= 600);
+  });
+
+  it('describe reports position, pool and live window', async () => {
+    const q = new MatchmakingQueue();
+    await q.join({ userId: 'a', mode: 'ranked', timeControl: '3+0', rating: 1500, gamesPlayed: 40, joinedAt: base });
+    await q.join({ userId: 'b', mode: 'ranked', timeControl: '3+0', rating: 1520, gamesPlayed: 3, joinedAt: base + 5 });
+    const info = await q.describe('b', base + 10_000);
+    assert.ok(info !== null);
+    assert.equal(info.position, 2);
+    assert.equal(info.poolSize, 2);
+    assert.equal(info.waitedMs, 9995);
+    assert.ok(info.window >= ratingWindowFor(0));
+    assert.equal(await q.describe('ghost'), null);
+  });
+
   it('re-join replaces ticket (anti-duplicate)', async () => {
     const q = new MatchmakingQueue();
     await q.join({ userId: 'a', mode: 'ranked', timeControl: '3+0', rating: 1500, joinedAt: base });

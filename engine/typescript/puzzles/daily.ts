@@ -153,11 +153,11 @@ const DIFFICULTY_PROMPT: Record<PuzzleDifficulty, string> = {
 };
 
 /** Build a pool of engine-valid candidates from neighbouring seeds. */
-export function seededPuzzlePool(seedBase: string, puzzleId: string, promptDate: string, count = 6): { puzzle: DailyPuzzle; quality: PuzzleQuality }[] {
+export function seededPuzzlePool(seedBase: string, puzzleId: string, promptDate: string, count = 6, maxPlies?: number): { puzzle: DailyPuzzle; quality: PuzzleQuality }[] {
   const out: { puzzle: DailyPuzzle; quality: PuzzleQuality }[] = [];
   for (let i = 0; i < count; i++) {
     try {
-      const puzzle = seededPuzzle(`${seedBase}#${i}`, puzzleId, promptDate);
+      const puzzle = seededPuzzle(`${seedBase}#${i}`, puzzleId, promptDate, maxPlies);
       // Re-scan to grade uniqueness (same scan the generator used).
       const state: GameState = {
         size: puzzle.size,
@@ -225,18 +225,53 @@ export function curatedDaily(date: string, taste: PuzzleTaste = DEFAULT_TASTE, p
 }
 
 /**
+ * Rank a pool by taste score and take the top N DISTINCT positions
+ * (deduped by solution+pawns key) — the premium-pack picker.
+ * Pure function of (pool, taste): same inputs, same pack order.
+ */
+export function rankPack(pool: { puzzle: DailyPuzzle; quality: PuzzleQuality }[], taste: PuzzleTaste, count: number): DailyPuzzle[] {
+  const t = clampTaste(taste);
+  const scored = pool.map((entry) => {
+    const q = entry.quality;
+    return {
+      entry,
+      score: q.solutionGain * (1 + t.sharp) + q.uniqueGap * (1 + 2 * t.sharp) + q.tension * 0.1 * (0.5 + t.tense),
+    };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const seen = new Set<string>();
+  const out: DailyPuzzle[] = [];
+  for (const s of scored) {
+    if (out.length >= count) break;
+    const p = s.entry.puzzle;
+    const key = `${p.turn}:${p.pawns[0].r},${p.pawns[0].c}:${p.pawns[1].r},${p.pawns[1].c}:${s.entry.quality.solutionGain}:${p.solution.r},${p.solution.c},${p.solution.orientation}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      ...p,
+      prompt: DIFFICULTY_PROMPT[s.entry.quality.difficulty],
+      difficulty: s.entry.quality.difficulty,
+      alternatives: s.entry.quality.alternatives,
+    });
+  }
+  return out;
+}
+
+/**
  * Generate a choke puzzle from any seed string (pure function of the seed).
  * Throws only when no choke is found in budget; callers fall back to a
  * neighbouring seed, which is also deterministic.
+ * `maxPlies` caps the bot line (shorter lines = faster generation for bulk
+ * packs; the default preserves the classic daily exactly).
  */
-export function seededPuzzle(seedString: string, puzzleId: string, promptDate: string): DailyPuzzle {
+export function seededPuzzle(seedString: string, puzzleId: string, promptDate: string, maxPlies?: number): DailyPuzzle {
   const seed = hashDate(seedString);
   for (let attempt = 0; attempt < 8; attempt++) {
     const stream = (seed + attempt * 2654435761) >>> 0;
     const botA = getBot(LINE_BOTS[stream % LINE_BOTS.length] as string);
     const botB = getBot(LINE_BOTS[(stream >>> 8) % LINE_BOTS.length] as string);
     if (botA === null || botB === null) continue;
-    const lineLen = 30 + (stream % 18);
+    const lineLen = maxPlies ?? (30 + (stream % 18));
     let state = createGame({ size: 9, wallsPerPlayer: 10 });
     const line: GameState[] = [state];
     for (let p = 0; p < lineLen && !state.isOver; p++) {

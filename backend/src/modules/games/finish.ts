@@ -21,10 +21,10 @@ import type { GameRecord } from './service.js';
 
 /** Rating bucket per time control (Bullet/Blitz/Rapid/Classic split). */
 export function ratingModeFor(timeControlId: string): string {
-  if (timeControlId.startsWith('1+')) return 'bullet';
+  if (timeControlId.startsWith('1+') || timeControlId.startsWith('2+')) return 'bullet';
   if (timeControlId.startsWith('3+')) return 'blitz';
   if (timeControlId.startsWith('5+')) return 'rapid';
-  if (timeControlId.startsWith('10+')) return 'classic';
+  if (timeControlId.startsWith('10+') || timeControlId.startsWith('15+')) return 'classic';
   return 'casual';
 }
 
@@ -126,6 +126,8 @@ export async function settleFinishedGame(g: GameRecord): Promise<void> {
         const { runSignalSweep } = await import('../fairplay/signals.js');
         void runSignalSweep(db, {
           gameId: g.id, winnerId, loserId, moveTimes: g.moveTimes, mode: g.mode, ratingMode,
+          actions: g.actions, size: g.state.size, wallsPerPlayer: g.state.wallsPerPlayer,
+          seatIds: [aId, bId],
         }).catch(() => undefined);
       }
     }

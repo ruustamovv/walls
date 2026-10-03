@@ -11,12 +11,14 @@ import {
   curatedDaily,
   dailyPuzzle,
   gradeAttempt,
+  rankPack,
   seededPuzzlePool,
   selectPuzzle,
   todayKey,
   DEFAULT_TASTE,
   type DailyPuzzle,
   type PuzzleDifficulty,
+  type PuzzleQuality,
   type PuzzleTaste,
 } from '../../../../engine/typescript/dist/puzzles/index.js';
 import { getMongoDb } from '../../database/mongodb/client.js';
@@ -429,5 +431,114 @@ export async function attemptDaily(
     solutionGain: puzzle.solutionGain,
     streak,
     solvedToday,
+  };
+}
+
+// ── Premium daily pack (100 puzzles) ─────────────────────────
+// Bulk generation is expensive (a bot line + full wall scan per seed), so it
+// NEVER runs on the request path: the owner generates each day's pack with
+// `pnpm --filter ./backend puzzles:pack` (cron) and the routes serve the
+// cached document. Ungenerated days answer honestly with generated:false.
+
+export const PREMIUM_PACK_SIZE = 100;
+/** Extra seeds scanned beyond the pack size (chokes fail often). */
+export const PREMIUM_PACK_SEEDS = 160;
+/** Shorter bot lines keep bulk generation cron-scale; quality is unaffected. */
+export const PREMIUM_PACK_PLIES = 24;
+
+export interface PackItemView extends DailyPuzzleView {
+  index: number;
+}
+
+export interface PremiumPackDoc {
+  packId: string;
+  date: string;
+  tasteSource: 'ai' | 'default';
+  items: DailyPuzzle[];
+  createdAt: Date;
+}
+
+/** Pure engine step: rank distinct candidates and take the top N. */
+export function buildPackItems(
+  date: string,
+  taste: PuzzleTaste,
+  want: number = PREMIUM_PACK_SIZE,
+  seeds: number = PREMIUM_PACK_SEEDS,
+  maxPlies: number = PREMIUM_PACK_PLIES,
+  onProgress?: (done: number, kept: number) => void,
+): DailyPuzzle[] {
+  const pool: { puzzle: DailyPuzzle; quality: PuzzleQuality }[] = [];
+  const BATCH = 20;
+  let done = 0;
+  for (let base = 0; base < seeds && pool.length < want * 2; base += BATCH) {
+    const batch = seededPuzzlePool(`${date}#pack${base}`, `pack-${date}`, date, Math.min(BATCH, seeds - base), maxPlies);
+    pool.push(...batch);
+    done += Math.min(BATCH, seeds - base);
+    onProgress?.(done, pool.length);
+  }
+  return rankPack(pool, taste, want);
+}
+
+/** Serve today's cached pack (no generation on the request path). */
+export async function getPremiumPack(userId: string, date: string = todayKey()): Promise<{
+  generated: boolean;
+  date: string;
+  tasteSource: 'ai' | 'default';
+  items: PackItemView[];
+  solved: boolean[];
+}> {
+  const { COLLECTIONS } = await import('../../database/mongodb/collections.js');
+  const db = await getMongoDb();
+  const doc = (await db.collection(COLLECTIONS.puzzle_packs).findOne({ packId: `pack-${date}` }).catch(() => null)) as PremiumPackDoc | null;
+  if (doc === null || !Array.isArray(doc.items) || doc.items.length === 0) {
+    return { generated: false, date, tasteSource: 'default', items: [], solved: [] };
+  }
+  const items: PackItemView[] = doc.items.map((p, index) => ({ ...toView(p, doc.tasteSource), index }));
+  let solved: boolean[] = items.map(() => false);
+  try {
+    const rows = await db.collection(COLLECTIONS.puzzle_attempts)
+      .find({ userId, puzzleId: { $regex: `^pack-${date}-` }, solved: true })
+      .project({ puzzleId: 1 }).toArray().catch(() => []);
+    const set = new Set(rows.map((r) => String((r as Record<string, unknown>)['puzzleId'])));
+    solved = items.map((_, index) => set.has(`pack-${date}-${index}`));
+  } catch {
+    // solved flags are advisory
+  }
+  return { generated: true, date, tasteSource: doc.tasteSource, items, solved };
+}
+
+/** Grade a premium-pack attempt against the cached solution. */
+export async function attemptPremium(
+  userId: string,
+  index: number,
+  wall: { r: number; c: number; orientation: 'h' | 'v' },
+  date: string = todayKey(),
+): Promise<AttemptResult & { index: number }> {
+  const { COLLECTIONS } = await import('../../database/mongodb/collections.js');
+  const db = await getMongoDb();
+  const doc = (await db.collection(COLLECTIONS.puzzle_packs).findOne({ packId: `pack-${date}` }).catch(() => null)) as PremiumPackDoc | null;
+  const puzzle = doc?.items[index];
+  if (puzzle === undefined) {
+    const { ValidationError } = await import('../../common/errors/errors.js');
+    throw new ValidationError('pack puzzle not found — today\'s pack may still be generating');
+  }
+  const verdict = gradeAttempt(puzzle, wall);
+  try {
+    const repo = new PuzzleRepository(db);
+    await repo.recordAttempt(userId, `pack-${date}-${index}`, verdict.solved);
+  } catch (err) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'pack attempt not recorded (degraded)');
+  }
+  return {
+    solved: verdict.solved,
+    gain: verdict.gain,
+    need: verdict.need,
+    legal: verdict.legal,
+    ...(verdict.reason !== undefined ? { reason: verdict.reason } : {}),
+    ...(verdict.solved ? { solution: { ...puzzle.solution } } : {}),
+    solutionGain: puzzle.solutionGain,
+    streak: 0,
+    solvedToday: verdict.solved,
+    index,
   };
 }

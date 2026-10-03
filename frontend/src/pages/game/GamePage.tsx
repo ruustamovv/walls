@@ -169,11 +169,11 @@ function LiveGame({ snap, game, id, userId, isGuest, tab, setTab, confirmResign,
           )}
         </div>
         <div style={{ maxWidth: 660, width: '100%', margin: '0 auto' }}>
-          <PlayerCard name={nameOf(topSeat)} rating={ratingOf(topSeat)} clockMs={game.clocks[topSeat]} clockActive={!done && snap.turn === topSeat} lowTime={game.clocks[topSeat] < 30000} wallsLeft={snap.state.wallsRemaining[topSeat]} wallsTotal={state.wallsPerPlayer} isTurn={!done && snap.turn === topSeat} isYou={mySeat === topSeat} connected={game.connected} accent={topSeat} />
+          <PlayerCard name={nameOf(topSeat)} rating={ratingOf(topSeat)} winPct={waiting ? null : topWin} clockMs={game.clocks[topSeat]} clockActive={!done && snap.turn === topSeat} lowTime={game.clocks[topSeat] < 30000} wallsLeft={snap.state.wallsRemaining[topSeat]} wallsTotal={state.wallsPerPlayer} isTurn={!done && snap.turn === topSeat} isYou={mySeat === topSeat} connected={game.connected} accent={topSeat} />
           <div style={{ margin: '10px 0', ...rotationStyle(rotated ? 180 : 0) }}>
             <GameBoard state={state as any} humanSeats={humanSeats} interactive={!spectating && game.connected} onMove={game.sendMove} onWall={game.sendWall} lastAction={snap.state.lastAction} showPaths={null} />
           </div>
-          <PlayerCard name={mySeat === null ? nameOf(bottomSeat) : `You · ${nameOf(bottomSeat)}`} rating={ratingOf(bottomSeat)} clockMs={game.clocks[bottomSeat]} clockActive={!done && snap.turn === bottomSeat} lowTime={game.clocks[bottomSeat] < 30000} wallsLeft={snap.state.wallsRemaining[bottomSeat]} wallsTotal={state.wallsPerPlayer} isTurn={!done && snap.turn === bottomSeat} isYou={mySeat === bottomSeat} connected={game.connected} accent={bottomSeat} />
+          <PlayerCard name={mySeat === null ? nameOf(bottomSeat) : `You · ${nameOf(bottomSeat)}`} rating={ratingOf(bottomSeat)} winPct={waiting ? null : bottomWin} clockMs={game.clocks[bottomSeat]} clockActive={!done && snap.turn === bottomSeat} lowTime={game.clocks[bottomSeat] < 30000} wallsLeft={snap.state.wallsRemaining[bottomSeat]} wallsTotal={state.wallsPerPlayer} isTurn={!done && snap.turn === bottomSeat} isYou={mySeat === bottomSeat} connected={game.connected} accent={bottomSeat} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
             <button onClick={() => setFlipped((f: boolean) => !f)} style={btn}>Flip</button>
             <button onClick={() => setSound(!soundOn)} style={btn}>{soundOn ? 'Sound on' : 'Muted'}</button>

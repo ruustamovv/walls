@@ -86,7 +86,7 @@ export default function ReplayPage() {
   if (error !== null) {
     return (
       <div>
-        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
+        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Play</Link>
         <div style={{ marginTop: 16 }}><ErrorBox message={error} /></div>
       </div>
     );
@@ -94,7 +94,7 @@ export default function ReplayPage() {
   if (data === null || states.length === 0) {
     return (
       <div>
-        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
+        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Play</Link>
         <div style={{ marginTop: 16 }}><Spinner /></div>
       </div>
     );
@@ -106,7 +106,7 @@ export default function ReplayPage() {
   return (
     <div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 12 }}>
-        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Lobby</Link>
+        <Link to="/play" style={{ color: 'var(--muted)', fontSize: 14 }}>← Play</Link>
         <h1 style={{ margin: 0, fontSize: 22 }}>Replay</h1>
         {data.result?.winnerSeat !== null && data.result !== null && (
           <span style={{ color: 'var(--muted)', fontSize: 14 }}>

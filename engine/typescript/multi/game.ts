@@ -207,7 +207,8 @@ export function applyMultiMove(state: MultiState, action: MultiAction): MultiApp
       events.push('turn_passed');
     }
   } else {
-    next.walls.push({ ...(action.wall as MultiWall) });
+    // Owner stamp (see rules/game.ts): the seat to move owns its walls.
+    next.walls.push({ ...(action.wall as MultiWall), by: player });
     next.wallsRemaining[player] = (next.wallsRemaining[player] ?? 0) - 1;
     next.turn = advanceTurn(next, player);
     events.push('wall_placed', 'turn_passed');
